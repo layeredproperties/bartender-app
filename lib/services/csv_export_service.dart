@@ -30,10 +30,21 @@ class CsvExportService {
   /// a shift, and so the part duplicate detection compares.
   static const int _sourceIndex = 8;
 
-  static Future<File> _logFile() async {
-    final dir = await getApplicationDocumentsDirectory();
-    return File('${dir.path}/$_fileName');
+  /// Resolve `name` inside `dir`, creating the directory first.
+  ///
+  /// `File.writeAsString` creates the file but not the directories above
+  /// it. On macOS `getTemporaryDirectory()` returns a per-bundle
+  /// `Library/Caches/<bundle-id>` path that the OS has not necessarily
+  /// created yet, so sharing a shift from a fresh install threw
+  /// `PathNotFoundException` instead of producing a file. Creating the
+  /// directory is a no-op once it exists.
+  static Future<File> _fileIn(Directory dir, String name) async {
+    await dir.create(recursive: true);
+    return File('${dir.path}/$name');
   }
+
+  static Future<File> _logFile() async =>
+      _fileIn(await getApplicationDocumentsDirectory(), _fileName);
 
   /// Check whether the log already contains rows for [date].
   static Future<bool> hasDataForDate(DateTime date) async {
@@ -167,10 +178,9 @@ class CsvExportService {
     required TipOutResult result,
     required double barbackCut,
   }) async {
-    final dir = await getTemporaryDirectory();
     final name = 'tip_out_shift_${_dateStr(timestamp)}_'
         '${_pad(timestamp.hour)}${_pad(timestamp.minute)}.csv';
-    final file = File('${dir.path}/$name');
+    final file = await _fileIn(await getTemporaryDirectory(), name);
     await file.writeAsString(buildShareableCsv(
       timestamp: timestamp,
       totals: totals,
