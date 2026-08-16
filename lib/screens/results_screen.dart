@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../models/logged_shift.dart';
 import '../models/money.dart';
 import '../models/pools.dart';
 import '../models/shift_draft.dart';
@@ -118,27 +119,34 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
     final now = DateTime.now();
     try {
-      var overwrite = false;
-      if (await CsvExportService.hasDataForDate(now)) {
-        final imported = await CsvExportService.importedRowCountForDate(now);
+      // Which of today's own shifts, if any, this save might replace.
+      final existing = await CsvExportService.localShiftsForDate(now);
+      _SaveAction action = const _SaveAction.append();
+      if (existing.isNotEmpty) {
         if (!mounted) return;
-        final choice = await _askDuplicateDate(imported);
+        final choice = await _askSaveAction(existing);
         if (choice == null) {
           if (mounted) setState(() => _saving = false);
           return;
         }
-        overwrite = choice;
+        action = choice;
       }
 
-      final save = overwrite
-          ? CsvExportService.overwriteToday
-          : CsvExportService.appendShift;
-      final path = await save(
-        timestamp: now,
-        totals: widget.draft.totals,
-        result: _result,
-        barbackCut: widget.draft.barbackCut,
-      );
+      final replaceKey = action.replaceKey;
+      final path = replaceKey == null
+          ? await CsvExportService.appendShift(
+              timestamp: now,
+              totals: widget.draft.totals,
+              result: _result,
+              barbackCut: widget.draft.barbackCut,
+            )
+          : await CsvExportService.replaceShift(
+              totalsRowLine: replaceKey,
+              timestamp: now,
+              totals: widget.draft.totals,
+              result: _result,
+              barbackCut: widget.draft.barbackCut,
+            );
 
       if (!mounted) return;
       setState(() {
@@ -153,35 +161,47 @@ class _ResultsScreenState extends State<ResultsScreen> {
     }
   }
 
-  /// Returns true to overwrite the day, false to append a second
-  /// shift, or null if the user cancels.
-  Future<bool?> _askDuplicateDate(int importedRows) {
-    return showDialog<bool>(
+  /// Ask whether this is another shift or a redo of a specific one.
+  ///
+  /// Each shift already saved today is offered individually, identified
+  /// by the time it was saved and what it paid out. A single "Replace
+  /// Today" button used to take every shift on the date with it, so
+  /// fixing one half of a double silently destroyed the other.
+  ///
+  /// Returns null if the user cancels.
+  Future<_SaveAction?> _askSaveAction(List<LoggedShift> existing) {
+    final single = existing.length == 1;
+    return showDialog<_SaveAction>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Entry Already Exists'),
-        content: Text(
-          'The log already has an entry for today. Add this as a second '
-          'shift, or replace the entries you saved today?'
-          // Replacing leaves imported rows alone, but say so: the user
-          // can see those rows in the log and would otherwise expect
-          // "replace today" to take them too.
-          '${importedRows > 0 ? '\n\nShifts teammates shared with you '
-              '($importedRows ${importedRows == 1 ? 'row' : 'rows'}) '
-              'are kept either way.' : ''}',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
+      builder: (dialogContext) => SimpleDialog(
+        title: Text(single
+            ? 'You already saved a shift today'
+            : 'You already saved ${existing.length} shifts today'),
+        children: [
+          ListTile(
+            leading: const Icon(Icons.add_circle_outline),
+            title: const Text('Add as a new shift'),
+            subtitle: Text(single
+                ? 'Keeps the shift you already saved'
+                : 'Keeps all ${existing.length}'),
+            onTap: () =>
+                Navigator.pop(dialogContext, const _SaveAction.append()),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Add Second Shift'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Replace Today'),
+          const Divider(height: 1),
+          for (final shift in existing)
+            ListTile(
+              leading: const Icon(Icons.refresh),
+              title: Text('Replace the ${shift.displayTime} shift'),
+              subtitle: Text('${formatMoney(shift.totalTips)} in tips'),
+              onTap: () => Navigator.pop(
+                dialogContext,
+                _SaveAction.replace(shift.totalsRowLine),
+              ),
+            ),
+          const Divider(height: 1),
+          ListTile(
+            title: const Text('Cancel'),
+            onTap: () => Navigator.pop(dialogContext),
           ),
         ],
       ),
@@ -339,4 +359,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
       ),
     );
   }
+}
+
+/// What to do when the tip log already holds shifts for today.
+class _SaveAction {
+  /// The "Shift Totals" row of the shift being redone, or null to add
+  /// this one alongside what's already there.
+  final String? replaceKey;
+
+  const _SaveAction.append() : replaceKey = null;
+  const _SaveAction.replace(this.replaceKey);
 }

@@ -87,6 +87,6 @@ void main() {
       () async {
     expect(await CsvExportService.hasDataForDate(timestamp), isFalse);
     expect(await CsvExportService.hasDuplicateShift('anything'), isFalse);
-    expect(await CsvExportService.importedRowCountForDate(timestamp), 0);
+    expect(await CsvExportService.localShiftsForDate(timestamp), isEmpty);
   });
 }

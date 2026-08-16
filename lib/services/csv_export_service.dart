@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/imported_shift.dart';
+import '../models/logged_shift.dart';
 import '../models/money.dart';
 import '../models/pools.dart';
 import '../models/shift_totals.dart';
@@ -86,15 +87,69 @@ class CsvExportService {
     return file.path;
   }
 
-  /// Replace this device's own rows for [timestamp]'s date with a fresh
-  /// set.
+  /// Split the log into shift blocks. A block starts at a "Shift Totals"
+  /// row and runs until the next one, so it holds that shift's totals
+  /// plus its barback and bartender rows.
   ///
-  /// This is the "redo the shift" path. Rows a teammate shared with you
-  /// are kept: they're tagged [sourceImported] and are not this shift to
-  /// redo, so wiping them would silently destroy data the user never
-  /// entered here. Use [appendShift] to log a second shift on the same
-  /// day without discarding the first.
-  static Future<String> overwriteToday({
+  /// Rows appearing before the first totals row — a hand-edited file, or
+  /// one written by a much older build — become a leading block, so
+  /// rewriting the log never silently drops them.
+  static List<List<String>> _blocks(List<String> lines) {
+    final blocks = <List<String>>[];
+    for (final line in lines) {
+      if (line.trim().isEmpty || _isHeader(line)) continue;
+      final fields = _splitRow(line);
+      final startsShift = fields.length > 2 && fields[2] == 'Shift Totals';
+      if (startsShift || blocks.isEmpty) {
+        blocks.add(<String>[line]);
+      } else {
+        blocks.last.add(line);
+      }
+    }
+    return blocks;
+  }
+
+  /// The shifts this device saved on [date], oldest first.
+  ///
+  /// Shifts a teammate shared are deliberately excluded: they aren't
+  /// yours to redo, and re-importing is the way to change them.
+  static Future<List<LoggedShift>> localShiftsForDate(DateTime date) async {
+    final file = await _logFile();
+    if (!await file.exists()) return const [];
+
+    final target = _dateStr(date);
+    final shifts = <LoggedShift>[];
+    for (final block in _blocks(await file.readAsLines())) {
+      final line = block.first;
+      final fields = _splitRow(line);
+      if (fields.length < _sourceIndex || fields[2] != 'Shift Totals') continue;
+      if (fields[0] != target || _sourceOf(line) != sourceLocal) continue;
+      shifts.add(LoggedShift(
+        dateStr: fields[0],
+        timeStr: fields[1],
+        creditCardTips: double.tryParse(fields[4]) ?? 0,
+        serviceChargeTips: double.tryParse(fields[5]) ?? 0,
+        sales: double.tryParse(fields[6]) ?? 0,
+        barbackCut: double.tryParse(fields[7]) ?? 0,
+        totalsRowLine: line,
+      ));
+    }
+    return shifts;
+  }
+
+  /// Replace one previously saved shift — the one whose totals row is
+  /// [totalsRowLine] — with a fresh set of rows.
+  ///
+  /// This is the "redo the shift" path, and it is scoped to a single
+  /// shift. Replacing everything logged that day was wrong for anyone
+  /// who works a double: fixing the evening numbers would silently take
+  /// the afternoon's with it. Every other shift, and anything a teammate
+  /// shared, is left untouched.
+  ///
+  /// The replacement is written where the old shift sat, so the log
+  /// stays in chronological order.
+  static Future<String> replaceShift({
+    required String totalsRowLine,
     required DateTime timestamp,
     required ShiftTotals totals,
     required TipOutResult result,
@@ -111,44 +166,37 @@ class CsvExportService {
       );
     }
 
-    final target = _dateStr(timestamp);
-    final lines = await file.readAsLines();
+    final replacement = _buildRows(
+      timestamp: timestamp,
+      totals: totals,
+      result: result,
+      barbackCut: barbackCut,
+    ).split('\n').where((l) => l.isNotEmpty).toList();
 
-    // Keep every row except this device's own rows for the target date.
-    final kept = lines.where((line) {
-      if (line.trim().isEmpty || _isHeader(line)) return false;
-      final sameDay = _firstField(line) == target;
-      return !(sameDay && _sourceOf(line) == sourceLocal);
-    });
+    // Compare on the shift key so a row re-tagged by an import still
+    // matches the shift the caller picked.
+    final key = _shiftKey(totalsRowLine);
+    final kept = <String>[];
+    var replaced = false;
+    for (final block in _blocks(await file.readAsLines())) {
+      if (!replaced && _shiftKey(block.first) == key) {
+        kept.addAll(replacement);
+        replaced = true;
+      } else {
+        kept.addAll(block);
+      }
+    }
+    // The shift vanished between listing and saving; keep the new rows
+    // rather than dropping the user's work on the floor.
+    if (!replaced) kept.addAll(replacement);
 
     final buffer = StringBuffer()..writeln(_header);
     for (final line in kept) {
       buffer.writeln(line);
     }
-    buffer.write(_buildRows(
-      timestamp: timestamp,
-      totals: totals,
-      result: result,
-      barbackCut: barbackCut,
-    ));
 
     await file.writeAsString(buffer.toString(), flush: true);
     return file.path;
-  }
-
-  /// How many rows in the log for [date] came from a teammate — what
-  /// "Replace Today" will now preserve rather than delete.
-  static Future<int> importedRowCountForDate(DateTime date) async {
-    final file = await _logFile();
-    if (!await file.exists()) return 0;
-
-    final target = _dateStr(date);
-    final lines = await file.readAsLines();
-    return lines
-        .where((line) => !_isHeader(line) && line.trim().isNotEmpty)
-        .where((line) =>
-            _firstField(line) == target && _sourceOf(line) == sourceImported)
-        .length;
   }
 
   /// Build a standalone CSV (header + one shift's rows) suitable for

@@ -71,9 +71,14 @@ teammate. On their device, **Import Shift Data** on the home screen
 previews it, warns if it's already in their log, and appends it.
 
 The tip log (`tip_out_log.csv` in the app's documents directory) tags
-every row as `Local` or `Imported`. Re-saving a shift and choosing
-"Replace Today" only replaces rows this device wrote — shifts teammates
-shared with you are never dropped.
+every row as `Local` or `Imported`.
+
+If you save a shift on a day you've already logged one, the app lists
+the shifts you saved that day and asks whether to add this one alongside
+them or redo a specific one. Replacement is scoped to the single shift
+you pick — work a double, fix the evening numbers, and the afternoon is
+untouched. Shifts teammates shared with you are never listed as yours to
+redo and are never dropped.
 
 ## Project Structure
 

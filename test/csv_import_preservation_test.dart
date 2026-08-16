@@ -1,11 +1,11 @@
 import 'dart:io';
 
+import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:tip_out/models/pools.dart';
 import 'package:tip_out/models/shift_totals.dart';
 import 'package:tip_out/models/tip_out_result.dart';
 import 'package:tip_out/services/csv_export_service.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this.path);
@@ -41,7 +41,21 @@ void main() {
     bartenders: {'You': Pools(cc: 200.25, sc: 25.0)},
     barbacks: {},
   );
-  final timestamp = DateTime(2026, 8, 11, 15, 45);
+
+  final lunch = DateTime(2026, 8, 11, 11, 30);
+  final dinner = DateTime(2026, 8, 11, 19, 15);
+
+  Future<void> save(DateTime at, {double cc = 320.5}) =>
+      CsvExportService.appendShift(
+        timestamp: at,
+        totals: ShiftTotals(
+          creditCardTips: cc,
+          serviceChargeTips: 40,
+          sales: 1200,
+        ),
+        result: result,
+        barbackCut: 30,
+      );
 
   /// A shift a teammate shared, already sitting in the local log.
   Future<void> importTeammateShift() async {
@@ -59,21 +73,87 @@ void main() {
     );
   }
 
-  group('overwriteToday', () {
-    test('keeps rows a teammate shared for the same date', () async {
-      // The bug: "Replace Today" dropped every row whose date matched,
-      // including a teammate's imported shift the user never entered
-      // here and had no way to get back.
+  group('localShiftsForDate', () {
+    test('lists this device\'s shifts for the date, oldest first', () async {
+      await save(lunch);
+      await save(dinner);
       await importTeammateShift();
-      await CsvExportService.appendShift(
-        timestamp: timestamp,
-        totals: totals,
+
+      final shifts = await CsvExportService.localShiftsForDate(lunch);
+
+      expect(shifts.map((s) => s.timeStr), ['11:30', '19:15']);
+      expect(shifts.first.totalTips, 360.5);
+    });
+
+    test('excludes shifts a teammate shared', () async {
+      await importTeammateShift();
+      expect(await CsvExportService.localShiftsForDate(lunch), isEmpty);
+    });
+
+    test('excludes other dates', () async {
+      await save(DateTime(2026, 8, 10, 20, 0));
+      expect(await CsvExportService.localShiftsForDate(lunch), isEmpty);
+    });
+
+    test('renders the time the way a schedule reads', () async {
+      await save(lunch);
+      await save(dinner);
+      final shifts = await CsvExportService.localShiftsForDate(lunch);
+      expect(shifts.map((s) => s.displayTime), ['11:30 AM', '7:15 PM']);
+    });
+  });
+
+  group('replaceShift', () {
+    test('redoing one shift of a double leaves the other alone', () async {
+      // The bug: "Replace Today" replaced every shift on the date, so
+      // fixing the dinner numbers silently destroyed the lunch shift.
+      await save(lunch, cc: 100);
+      await save(dinner, cc: 200);
+
+      final shifts = await CsvExportService.localShiftsForDate(lunch);
+      final dinnerShift = shifts.firstWhere((s) => s.timeStr == '19:15');
+
+      await CsvExportService.replaceShift(
+        totalsRowLine: dinnerShift.totalsRowLine,
+        timestamp: dinner,
+        totals: const ShiftTotals(creditCardTips: 999, serviceChargeTips: 1),
         result: result,
         barbackCut: 30,
       );
 
-      await CsvExportService.overwriteToday(
-        timestamp: timestamp,
+      final after = await CsvExportService.localShiftsForDate(lunch);
+      expect(after.length, 2, reason: 'the lunch shift must survive');
+      expect(after.firstWhere((s) => s.timeStr == '11:30').creditCardTips, 100);
+      expect(after.firstWhere((s) => s.timeStr == '19:15').creditCardTips, 999);
+    });
+
+    test('keeps the log in chronological order', () async {
+      await save(lunch, cc: 100);
+      await save(dinner, cc: 200);
+
+      final shifts = await CsvExportService.localShiftsForDate(lunch);
+      await CsvExportService.replaceShift(
+        totalsRowLine: shifts.first.totalsRowLine,
+        timestamp: lunch,
+        totals: const ShiftTotals(creditCardTips: 111, serviceChargeTips: 0),
+        result: result,
+        barbackCut: 0,
+      );
+
+      // The replacement sits where the original did, not appended last.
+      final after = await CsvExportService.localShiftsForDate(lunch);
+      expect(after.map((s) => s.timeStr), ['11:30', '19:15']);
+      expect(after.first.creditCardTips, 111);
+    });
+
+    test('keeps shifts a teammate shared for the same date', () async {
+      await importTeammateShift();
+      await save(dinner);
+
+      final shifts = await CsvExportService.localShiftsForDate(dinner);
+      await CsvExportService.replaceShift(
+        totalsRowLine: shifts.single.totalsRowLine,
+        timestamp: dinner,
         totals: totals,
         result: result,
         barbackCut: 30,
@@ -83,48 +163,17 @@ void main() {
       expect(body.contains('Bob'), isTrue,
           reason: 'imported teammate row must survive');
       expect(body.contains(CsvExportService.sourceImported), isTrue);
-      // The user's own shift is written once, not twice.
       expect(RegExp('Bartender,You').allMatches(body).length, 1);
     });
 
-    test('still replaces this device\'s own rows for the date', () async {
-      await CsvExportService.appendShift(
-        timestamp: timestamp,
-        totals: totals,
-        result: result,
-        barbackCut: 30,
-      );
-      await CsvExportService.appendShift(
-        timestamp: timestamp,
-        totals: totals,
-        result: result,
-        barbackCut: 30,
-      );
+    test('leaves other dates alone', () async {
+      await save(DateTime(2026, 8, 10, 20, 0));
+      await save(dinner);
 
-      await CsvExportService.overwriteToday(
-        timestamp: timestamp,
-        totals: totals,
-        result: result,
-        barbackCut: 30,
-      );
-
-      final lines = (await logFile.readAsLines())
-          .where((l) => l.trim().isNotEmpty)
-          .toList();
-      // header + one totals row + one bartender row
-      expect(lines.length, 3);
-    });
-
-    test('leaves rows from other dates alone', () async {
-      await CsvExportService.appendShift(
-        timestamp: DateTime(2026, 8, 10, 20, 0),
-        totals: totals,
-        result: result,
-        barbackCut: 30,
-      );
-
-      await CsvExportService.overwriteToday(
-        timestamp: timestamp,
+      final shifts = await CsvExportService.localShiftsForDate(dinner);
+      await CsvExportService.replaceShift(
+        totalsRowLine: shifts.single.totalsRowLine,
+        timestamp: dinner,
         totals: totals,
         result: result,
         barbackCut: 30,
@@ -134,24 +183,24 @@ void main() {
       expect(body.contains('2026-08-10'), isTrue);
       expect(body.contains('2026-08-11'), isTrue);
     });
-  });
 
-  group('importedRowCountForDate', () {
-    test('counts only imported rows for that date', () async {
-      await importTeammateShift();
-      await CsvExportService.appendShift(
-        timestamp: timestamp,
+    test('still writes the shift if the target has since vanished', () async {
+      await save(lunch);
+      final shifts = await CsvExportService.localShiftsForDate(lunch);
+      final key = shifts.single.totalsRowLine;
+
+      // Simulate the log being cleared between listing and saving.
+      await logFile.delete();
+
+      await CsvExportService.replaceShift(
+        totalsRowLine: key,
+        timestamp: dinner,
         totals: totals,
         result: result,
         barbackCut: 30,
       );
 
-      // totals row + one bartender row from the shared file
-      expect(await CsvExportService.importedRowCountForDate(timestamp), 2);
-      expect(
-        await CsvExportService.importedRowCountForDate(DateTime(2026, 8, 10)),
-        0,
-      );
+      expect((await CsvExportService.localShiftsForDate(dinner)).length, 1);
     });
   });
 
@@ -180,8 +229,15 @@ void main() {
       await CsvExportService.importShift(
         CsvExportService.parseShareableCsv(legacy),
       );
-      await CsvExportService.overwriteToday(
-        timestamp: timestamp,
+
+      // An imported shift is not offered as one of yours to redo.
+      expect(await CsvExportService.localShiftsForDate(lunch), isEmpty);
+
+      await save(dinner);
+      final shifts = await CsvExportService.localShiftsForDate(dinner);
+      await CsvExportService.replaceShift(
+        totalsRowLine: shifts.single.totalsRowLine,
+        timestamp: dinner,
         totals: totals,
         result: result,
         barbackCut: 30,
@@ -191,10 +247,8 @@ void main() {
     });
 
     test('duplicate detection ignores the Source column', () async {
-      // Importing rewrites Source, so comparing whole lines would report
-      // an already-imported shift as new.
       final csv = CsvExportService.buildShareableCsv(
-        timestamp: timestamp,
+        timestamp: dinner,
         totals: totals,
         result: result,
         barbackCut: 30,
