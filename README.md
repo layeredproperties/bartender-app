@@ -1,84 +1,106 @@
-# Bartender Tip-Out App
+# Tip Out
 
-A Flutter mobile app for bartenders to calculate tip-outs for their team, including barbacks, based on hours worked and tip percentages.
+A Flutter app for bartenders to calculate tip-outs for their team,
+including barbacks, based on hours worked and tip percentages. Results
+are Evention-ready — every line item is split into credit card tips and
+service charge tips, and the lines always add back up to the shift total
+to the penny.
 
 ## Features
 
-- **Home Screen**: Quick overview and navigation
-- **Tips Screen**: Enter total tips for the shift
-- **Team Screen**: Add and manage team members (bartenders, servers, etc.)
-- **Barback Screen**: Configure barback tip-out percentage
-- **Hours Screen**: Enter hours worked by each team member
-- **Results Screen**: View calculated tip-out amounts for each person
+- **Home**: start a shift, or import one a teammate shared with you
+- **Tips**: enter credit card tips, service charge tips, and net sales
+- **Team**: pick who worked, add and remove roster members, or flag a
+  solo shift
+- **Barback**: set the barback payout as a flat amount, a % of tips, or
+  a % of sales
+- **Hours**: split the pool equally or proportionally by hours worked
+- **Results**: per-person breakdown, plus copy, share, and save to a
+  running CSV tip log
+- **Settings**: your name (used for your line item and the log) and an
+  app-wide text size
 
 ## Getting Started
 
 ### Prerequisites
 
-- [Flutter SDK](https://flutter.dev/docs/get-started/install) (version 3.0 or later)
-- Xcode (for iOS development)
+- [Flutter SDK](https://flutter.dev/docs/get-started/install) 3.0 or later
+- Xcode (for iOS/macOS development)
 - Android Studio (for Android development)
 
 ### Installation
 
-1. Install Flutter if you haven't already:
-   ```bash
-   brew install --cask flutter
-   ```
-
-2. Clone or copy this project to your machine
-
-3. Navigate to the project directory:
-   ```bash
-   cd VSCode
-   ```
-
-4. Get dependencies:
-   ```bash
-   flutter pub get
-   ```
-
-5. Run the app:
-   ```bash
-   flutter run
-   ```
-
-### Running on iOS
-
 ```bash
-cd VSCode
-flutter run -d ios
+# from the project root
+flutter pub get
+flutter run
 ```
 
-### Running on Android
+Target a specific device with `flutter run -d ios`, `-d android`, or
+`-d macos`.
+
+### Tests
 
 ```bash
-cd VSCode
-flutter run -d android
+flutter test      # unit + widget tests
+flutter analyze   # static analysis
 ```
 
 ## How It Works
 
-1. **Enter Tips**: Input the total tips collected during the shift
-2. **Add Team**: Add each team member who worked the shift
-3. **Set Barback %**: Configure what percentage of tips goes to the barback
-4. **Enter Hours**: Record how many hours each person worked
-5. **View Results**: The app calculates each person's tip-out based on their share of hours worked
+1. **Enter Tips** — credit card and service charge tips are tracked as
+   separate pools. Net sales is optional, but required if you want to
+   pay the barback a percentage of sales.
+2. **Add Team** — pick who worked. Roster names must be unique: the
+   entire tip-out is keyed by name, so two people called Mike would
+   collapse into one line item.
+3. **Set the Barback Cut** — flat amount, % of tips, or % of sales.
+4. **Enter Hours** — or choose an equal split.
+5. **View Results** — each person's credit card and service charge
+   amounts, which you can copy, share as a CSV, or append to your tip
+   log.
+
+The calculation itself is documented step by step in the class comment
+on `TipCalculator`, including a worked example that the tests assert
+against.
+
+## Sharing and Importing
+
+**Share** writes a one-shift CSV you can AirDrop or message to a
+teammate. On their device, **Import Shift Data** on the home screen
+previews it, warns if it's already in their log, and appends it.
+
+The tip log (`tip_out_log.csv` in the app's documents directory) tags
+every row as `Local` or `Imported`. Re-saving a shift and choosing
+"Replace Today" only replaces rows this device wrote — shifts teammates
+shared with you are never dropped.
 
 ## Project Structure
 
 ```
 lib/
-├── main.dart              # App entry point
+├── main.dart                    # App entry, theme, AppSettings inherited widget
 ├── models/
-│   ├── person.dart        # Person data model
-│   └── shift_totals.dart  # Shift totals data model
+│   ├── money.dart               # Amount parsing, rounding, formatting
+│   ├── pools.dart               # A line item: credit card + service charge
+│   ├── person.dart              # Roster entry (immutable)
+│   ├── shift_totals.dart        # Tips and sales entered for the shift
+│   ├── shift_draft.dart         # The shift in progress, passed between screens
+│   ├── tip_out_result.dart      # Calculated payouts
+│   └── imported_shift.dart      # A shift parsed from a teammate's CSV
 ├── services/
-│   └── tip_calculator.dart # Tip calculation logic
+│   ├── tip_calculator.dart      # The tip-out math (documented + unit tested)
+│   ├── csv_export_service.dart  # Tip log read/write, share, import
+│   └── settings_service.dart    # Preferences and roster persistence
+├── widgets/
+│   └── money_row.dart           # Shared label/amount row and warning card
 └── screens/
-    ├── home_screen.dart    # Home/navigation screen
-    ├── tips_screen.dart    # Tips input screen
-    ├── team_screen.dart    # Team management screen
-    ├── barback_screen.dart # Barback configuration screen
-    ├── hours_screen.dart   # Hours input screen
-    └── results_screen.dart # Results display screen
+    ├── home_screen.dart
+    ├── tips_screen.dart
+    ├── team_screen.dart
+    ├── barback_screen.dart
+    ├── hours_screen.dart
+    ├── results_screen.dart
+    ├── import_screen.dart
+    └── settings_screen.dart
+```

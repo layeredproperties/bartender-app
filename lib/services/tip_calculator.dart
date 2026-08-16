@@ -1,3 +1,5 @@
+import '../models/money.dart' as money;
+import '../models/pools.dart';
 import '../models/shift_totals.dart';
 import '../models/tip_out_result.dart';
 
@@ -24,12 +26,19 @@ enum BarbackMode { flatAmount, percentageOfTips, percentageOfSales }
 /// The barback tip-out is NOT deducted from the CC+SC pool. Instead:
 ///   - `X` = BB / N  — the total barback pool (what each bartender's app
 ///     shows as the barback's tip-out).
-///   - Each bartender's deduction = X / N.
-/// Because N bartenders each give up `X / N`, the bartenders collectively
-/// give up exactly `X` — which is exactly what the barbacks receive.
+///   - Each bartender's deduction = `X × their share of the pool`, using
+///     the same weights step 1 used: `1/N` on an equal split, or
+///     `theirHours / totalHours` on an hourly one.
+/// Because the shares sum to 1, the bartenders collectively give up
+/// exactly `X` — which is exactly what the barbacks receive. On an equal
+/// split this reduces to the flat `X / N` per bartender.
 /// This deduction is split proportionally between the bartender's CC and
 /// SC amounts by the CC/SC ratio, so the displayed numbers are
 /// Evention-ready (no separate "Barback Tip-Out" line).
+///
+/// Weighting the deduction is what keeps an hourly shift fair: a
+/// bartender who worked two of twelve hours covers a sixth of the
+/// barback, not half of it.
 ///
 /// ### Step 3 — Share the barback pool among the barbacks
 /// The barback pool `X` is split proportionally between CC and SC by the
@@ -58,8 +67,8 @@ enum BarbackMode { flatAmount, percentageOfTips, percentageOfSales }
 ///   Bob = {cc: 266.67, sc: 66.67}
 ///   Carol = {cc: 266.67, sc: 66.67}
 ///
-/// Step 2 — Barback deduction (X = BB/N = $100/3 = $33.33,
-///          deduction = X/N = $33.33/3 = $11.11):
+/// Step 2 — Barback deduction (X = BB/N = $100/3 = $33.33; equal split,
+///          so each share is 1/3 and deduction = $33.33/3 = $11.11):
 ///   Split: CC = $11.11 × 0.8 = $8.89, SC = $11.11 − $8.89 = $2.22
 ///   You:   cc = 266.66 − 8.89 = 257.77, sc = 66.66 − 2.22 = 64.44
 ///   Bob:   cc = 266.67 − 8.89 = 257.78, sc = 66.67 − 2.22 = 64.45
@@ -75,6 +84,19 @@ enum BarbackMode { flatAmount, percentageOfTips, percentageOfSales }
 ///   Carol: 257.78 + 64.45 = 322.23
 ///   Barback: 26.66 + 6.67 = 33.33
 ///   Total: 322.21 + 322.23 + 322.23 + 33.33 = $1000.00 ✓
+///
+/// ### Worked example — hourly split
+/// 2 bartenders (You 10h, Bob 2h), TT = $1000 (all CC), BB = $200,
+/// 1 barback. X = BB/N = $100.
+///
+///   Step 1: You = 1000 × 10/12 = $833.33, Bob = 1000 × 2/12 = $166.67
+///   Step 2: You gives up 100 × 10/12 = $83.33
+///           Bob gives up 100 ×  2/12 = $16.67  (a flat split would have
+///                                               charged Bob $50)
+///           You = 833.33 − 83.33 = $750.00
+///           Bob = 166.67 − 16.67 = $150.00
+///   Step 3: Barback = $100.00
+///   Total:  750.00 + 150.00 + 100.00 = $1000.00 ✓
 class TipCalculator {
   // Calculate the total barback cut based on the selected mode
   static double calculateBarbackCut({
@@ -94,15 +116,21 @@ class TipCalculator {
 
   /// Run the full shift calculation (steps 1–4 above).
   ///
-  /// [bartenderNames] and [barbackNames] must be free of duplicates;
-  /// duplicate names would collapse into a single map entry.
+  /// [bartenderNames] and [barbackNames] must each be free of duplicates.
+  /// Every map in this file is keyed by name, so a repeated name would
+  /// collapse two people into one line item and quietly hand the missing
+  /// share to whoever absorbs the rounding remainder. That is a silent
+  /// money error, so it throws an [ArgumentError] instead — the roster
+  /// screens reject duplicate names before it can happen.
   ///
   /// When [isSolo] is true the user keeps the entire pool and no
   /// barback deduction is applied.
   ///
   /// Returns a [TipOutResult] whose `totalDistributed` is guaranteed to
   /// equal `totals.totalTips` (to the cent) whenever there is at least
-  /// one bartender.
+  /// one bartender. With no bartenders it returns [TipOutResult.empty],
+  /// which distributes nothing — callers must not reach that state with
+  /// a non-zero pool.
   static TipOutResult calculateShift({
     required ShiftTotals totals,
     required List<String> bartenderNames,
@@ -113,15 +141,16 @@ class TipCalculator {
     bool equalSplit = true,
     Map<String, double>? hours,
   }) {
+    _assertNoDuplicates(bartenderNames, 'bartenderNames');
+    _assertNoDuplicates(barbackNames, 'barbackNames');
+
     final cc = totals.creditCardTips;
     final sc = totals.serviceChargeTips;
     final totalTips = cc + sc;
 
     if (isSolo) {
       return TipOutResult(
-        bartenders: {
-          userName: {'cc': cc, 'sc': sc},
-        },
+        bartenders: {userName: Pools(cc: cc, sc: sc).rounded()},
         barbacks: const {},
       );
     }
@@ -138,7 +167,7 @@ class TipCalculator {
 
     // STEP 1 — Split each pool separately so each sums to its total.
     final bartenders = splitPoolsSeparately(
-      netPools: {'cc': cc, 'sc': sc},
+      netPools: Pools(cc: cc, sc: sc),
       bartenderNames: bartenderNames,
       equalSplit: equalSplit,
       hours: hours ?? const {},
@@ -157,64 +186,67 @@ class TipCalculator {
     // STEP 2 — Deduct each bartender's share of the barback pool,
     // split proportionally so the displayed numbers are Evention-ready.
     if (barbackPool > 0) {
-      final deduction = barbackDeductionPerBartender(
-        barbackCut: barbackCut,
-        bartenderCount: bartenderNames.length,
-      );
-      final deductionSplit = splitDeductionProportionally(
-        deduction: deduction,
-        creditCardTips: cc,
-        serviceChargeTips: sc,
+      final weights = splitWeights(
+        bartenderNames: bartenderNames,
+        equalSplit: equalSplit,
+        hours: hours ?? const {},
       );
       for (final name in bartenderNames) {
-        bartenders[name]!['cc'] = roundToCents(
-          (bartenders[name]!['cc'] ?? 0) - deductionSplit['cc']!,
+        final deductionSplit = splitDeductionProportionally(
+          deduction: roundToCents(barbackPool * weights[name]!),
+          creditCardTips: cc,
+          serviceChargeTips: sc,
         );
-        bartenders[name]!['sc'] = roundToCents(
-          (bartenders[name]!['sc'] ?? 0) - deductionSplit['sc']!,
-        );
+        bartenders[name] = (bartenders[name]! - deductionSplit).rounded();
       }
     }
 
     // STEP 3 — Share the barback pool among the barbacks. Dividing by
     // the barback count (rather than paying each one the full pool)
     // keeps the payout equal to what the bartenders gave up.
-    final barbacks = <String, Map<String, double>>{};
+    final barbacks = <String, Pools>{};
     if (barbackNames.isNotEmpty) {
       final poolSplit = splitDeductionProportionally(
         deduction: barbackPool,
         creditCardTips: cc,
         serviceChargeTips: sc,
       );
-      final count = barbackNames.length;
+      final share = (poolSplit / barbackNames.length).rounded();
       for (final name in barbackNames) {
-        barbacks[name] = {
-          'cc': roundToCents(poolSplit['cc']! / count),
-          'sc': roundToCents(poolSplit['sc']! / count),
-        };
+        barbacks[name] = share;
       }
     }
 
+    // STEP 4 — Penny reconciliation so the lines sum to TT exactly. The
+    // remainder lands in whichever pool the recipient already has money
+    // in, so a service-charge-only shift never grows a credit-card line.
     final result = TipOutResult(bartenders: bartenders, barbacks: barbacks);
-
-    // STEP 4 — Penny reconciliation so the lines sum to TT exactly.
     final remainder = roundToCents(totalTips - result.totalDistributed);
     if (remainder != 0) {
       if (barbacks.isNotEmpty) {
         final first = barbackNames.first;
-        barbacks[first]!['cc'] = roundToCents(
-          (barbacks[first]!['cc'] ?? 0) + remainder,
-        );
+        barbacks[first] = barbacks[first]!.addRemainder(remainder);
       } else {
-        final target =
-            bartenders.containsKey(userName) ? userName : bartenders.keys.first;
-        bartenders[target]!['cc'] = roundToCents(
-          (bartenders[target]!['cc'] ?? 0) + remainder,
-        );
+        final target = bartenders.containsKey(userName)
+            ? userName
+            : bartenders.keys.first;
+        bartenders[target] = bartenders[target]!.addRemainder(remainder);
       }
     }
 
     return result;
+  }
+
+  static void _assertNoDuplicates(List<String> names, String label) {
+    if (names.toSet().length == names.length) return;
+    final seen = <String>{};
+    final duplicates = names.where((n) => !seen.add(n)).toSet();
+    throw ArgumentError.value(
+      names,
+      label,
+      'duplicate names would collapse into one line item: '
+      '${duplicates.join(', ')}',
+    );
   }
 
   /// Calculate the total barback pool: X = BB / N
@@ -229,16 +261,68 @@ class TipCalculator {
     return roundToCents(barbackCut / bartenderCount);
   }
 
-  /// Calculate each bartender's barback deduction: X / N
-  /// where X = BB / N. This is the amount deducted from each
-  /// bartender's line for the barback tip-out.
+  /// Each bartender's fraction of the pool: `1/N` on an equal split,
+  /// `theirHours / totalHours` on an hourly one.
+  ///
+  /// The same weights drive both the payout (step 1) and the barback
+  /// deduction (step 2), which is what keeps the two consistent.
+  /// Falls back to an equal split when no usable hours were supplied.
+  static Map<String, double> splitWeights({
+    required List<String> bartenderNames,
+    required bool equalSplit,
+    required Map<String, double> hours,
+  }) {
+    if (bartenderNames.isEmpty) return const {};
+
+    final totalHours = equalSplit
+        ? 0.0
+        : bartenderNames.fold<double>(
+            0.0,
+            (sum, name) => sum + (hours[name] ?? 0),
+          );
+
+    if (equalSplit || totalHours <= 0) {
+      final share = 1 / bartenderNames.length;
+      return {for (final name in bartenderNames) name: share};
+    }
+
+    return {
+      for (final name in bartenderNames) name: (hours[name] ?? 0) / totalHours,
+    };
+  }
+
+  /// One bartender's barback deduction: `X × share`, where X = BB / N
+  /// and `share` is their fraction of the pool (see [splitWeights]).
+  ///
+  /// Because the shares sum to 1, the bartenders collectively give up
+  /// exactly X — which is what the barbacks receive.
+  static double barbackDeduction({
+    required double barbackCut,
+    required int bartenderCount,
+    required double share,
+  }) {
+    if (bartenderCount <= 0) return 0;
+    return roundToCents(
+      barbackLineItem(
+            barbackCut: barbackCut,
+            bartenderCount: bartenderCount,
+          ) *
+          share,
+    );
+  }
+
+  /// Each bartender's barback deduction on an equal split: X / N
+  /// where X = BB / N.
   static double barbackDeductionPerBartender({
     required double barbackCut,
     required int bartenderCount,
   }) {
     if (bartenderCount <= 0) return 0;
-    final x = roundToCents(barbackCut / bartenderCount);
-    return roundToCents(x / bartenderCount);
+    return barbackDeduction(
+      barbackCut: barbackCut,
+      bartenderCount: bartenderCount,
+      share: 1 / bartenderCount,
+    );
   }
 
   /// Split a barback deduction amount proportionally between the
@@ -249,26 +333,19 @@ class TipCalculator {
   /// The SC portion is the remainder:
   ///   `scPortion = deduction − ccPortion`
   /// This guarantees `ccPortion + scPortion = deduction` exactly.
-  ///
-  /// Returns a map with 'cc' and 'sc' keys.
-  static Map<String, double> splitDeductionProportionally({
+  static Pools splitDeductionProportionally({
     required double deduction,
     required double creditCardTips,
     required double serviceChargeTips,
   }) {
     final totalTips = creditCardTips + serviceChargeTips;
-    if (totalTips <= 0) {
-      return {'cc': 0.0, 'sc': 0.0};
-    }
+    if (totalTips <= 0) return Pools.zero;
     final ccPortion = roundToCents(deduction * creditCardTips / totalTips);
-    final scPortion = roundToCents(deduction - ccPortion);
-    return {'cc': ccPortion, 'sc': scPortion};
+    return Pools(cc: ccPortion, sc: roundToCents(deduction - ccPortion));
   }
 
   /// Round to the nearest cent (2 decimal places).
-  static double roundToCents(double value) {
-    return (value * 100).roundToDouble() / 100;
-  }
+  static double roundToCents(double value) => money.roundToCents(value);
 
   /// Split a single pool equally. Rounds each share to cents.
   static double equalSplit(double pool, int count) {
@@ -292,61 +369,59 @@ class TipCalculator {
   /// Each pool is split independently so that each pool sums exactly
   /// to its total. Any rounding remainder (a penny or two) is added
   /// to the person specified by `remainderTo` (or nobody if null).
-  ///
-  /// Returns a map of person name -> { 'cc': amount, 'sc': amount }.
-  static Map<String, Map<String, double>> splitPoolsSeparately({
-    required Map<String, double> netPools,
+  static Map<String, Pools> splitPoolsSeparately({
+    required Pools netPools,
     required List<String> bartenderNames,
     required bool equalSplit,
     required Map<String, double> hours,
     String? remainderTo,
   }) {
-    final result = <String, Map<String, double>>{};
-
+    final result = <String, Pools>{};
     if (bartenderNames.isEmpty) return result;
 
     for (final name in bartenderNames) {
-      result[name] = {'cc': 0.0, 'sc': 0.0};
+      result[name] = Pools.zero;
     }
 
-    // Split each pool separately
-    for (final poolKey in ['cc', 'sc']) {
-      final poolAmount = netPools[poolKey] ?? 0.0;
+    final totalHours = equalSplit
+        ? 0.0
+        : bartenderNames.fold<double>(
+            0.0,
+            (sum, name) => sum + (hours[name] ?? 0),
+          );
+
+    // Split each pool separately.
+    for (final isCredit in const [true, false]) {
+      final poolAmount = isCredit ? netPools.cc : netPools.sc;
       if (poolAmount <= 0) continue;
 
-      if (equalSplit) {
-        final perPerson = TipCalculator.equalSplit(
-          poolAmount,
-          bartenderNames.length,
-        );
-        for (final name in bartenderNames) {
-          result[name]![poolKey] = perPerson;
-        }
-      } else {
-        final totalHours = bartenderNames.fold<double>(
-          0.0,
-          (sum, name) => sum + (hours[name] ?? 0),
-        );
-        for (final name in bartenderNames) {
-          final personHours = hours[name] ?? 0;
-          result[name]![poolKey] = hourlySplit(
-            pool: poolAmount,
-            personHours: personHours,
-            totalHours: totalHours,
-          );
-        }
+      double shareFor(String name) => equalSplit
+          ? TipCalculator.equalSplit(poolAmount, bartenderNames.length)
+          : hourlySplit(
+              pool: poolAmount,
+              personHours: hours[name] ?? 0,
+              totalHours: totalHours,
+            );
+
+      var distributed = 0.0;
+      for (final name in bartenderNames) {
+        final share = shareFor(name);
+        distributed += share;
+        result[name] = isCredit
+            ? result[name]!.copyWith(cc: share)
+            : result[name]!.copyWith(sc: share);
       }
 
-      // Hand any rounding remainder to the designated person so the
-      // pool sums exactly to its total.
-      final totalDistributed = bartenderNames.fold<double>(
-        0.0,
-        (sum, name) => sum + (result[name]![poolKey] ?? 0),
-      );
-      final remainder = roundToCents(poolAmount - totalDistributed);
+      // Hand any rounding remainder to the designated person so the pool
+      // sums exactly to its total. Rounding here (rather than adding the
+      // raw sum) is what keeps `totalDistributed` free of floating-point
+      // drift like 1000.0000000000001.
+      final remainder = roundToCents(poolAmount - distributed);
       if (remainder != 0 && remainderTo != null) {
-        result[remainderTo]![poolKey] =
-            (result[remainderTo]![poolKey] ?? 0) + remainder;
+        final current = result[remainderTo]!;
+        result[remainderTo] = isCredit
+            ? current.copyWith(cc: roundToCents(current.cc + remainder))
+            : current.copyWith(sc: roundToCents(current.sc + remainder));
       }
     }
 

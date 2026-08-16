@@ -1,12 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:bartender_tip_out/models/shift_totals.dart';
-import 'package:bartender_tip_out/services/tip_calculator.dart';
+import 'package:tip_out/models/pools.dart';
+import 'package:tip_out/models/shift_totals.dart';
+import 'package:tip_out/services/tip_calculator.dart';
 
 void main() {
   group('TipCalculator', () {
     group('calculateBarbackCut', () {
       test('calculates flat amount barback cut', () {
-        final shiftTotals = ShiftTotals(
+        const shiftTotals = ShiftTotals(
           creditCardTips: 800.0,
           serviceChargeTips: 100.0,
         );
@@ -20,7 +21,7 @@ void main() {
       });
 
       test('calculates percentage of tips barback cut', () {
-        final shiftTotals = ShiftTotals(
+        const shiftTotals = ShiftTotals(
           creditCardTips: 800.0,
           serviceChargeTips: 100.0,
         );
@@ -34,7 +35,7 @@ void main() {
       });
 
       test('calculates percentage of sales barback cut', () {
-        final shiftTotals = ShiftTotals(
+        const shiftTotals = ShiftTotals(
           creditCardTips: 800.0,
           serviceChargeTips: 100.0,
           sales: 5000.0,
@@ -122,10 +123,10 @@ void main() {
           creditCardTips: 800.0,
           serviceChargeTips: 200.0,
         );
-        expect(result['cc'], 8.89);
-        expect(result['sc'], 2.22);
+        expect(result.cc, 8.89);
+        expect(result.sc, 2.22);
         // The split must sum exactly to the deduction
-        expect(result['cc']! + result['sc']!, closeTo(11.11, 0.001));
+        expect(result.cc + result.sc, closeTo(11.11, 0.001));
       });
 
       test('splits barback line item proportionally', () {
@@ -137,10 +138,10 @@ void main() {
           creditCardTips: 800.0,
           serviceChargeTips: 200.0,
         );
-        expect(result['cc'], 26.66);
-        expect(result['sc'], 6.67);
+        expect(result.cc, 26.66);
+        expect(result.sc, 6.67);
         // The split must sum exactly to the deduction
-        expect(result['cc']! + result['sc']!, closeTo(33.33, 0.001));
+        expect(result.cc + result.sc, closeTo(33.33, 0.001));
       });
 
       test('handles zero total tips', () {
@@ -149,8 +150,8 @@ void main() {
           creditCardTips: 0.0,
           serviceChargeTips: 0.0,
         );
-        expect(result['cc'], 0.0);
-        expect(result['sc'], 0.0);
+        expect(result.cc, 0.0);
+        expect(result.sc, 0.0);
       });
 
       test('handles all tips in one pool', () {
@@ -160,8 +161,8 @@ void main() {
           creditCardTips: 100.0,
           serviceChargeTips: 0.0,
         );
-        expect(result['cc'], 10.0);
-        expect(result['sc'], 0.0);
+        expect(result.cc, 10.0);
+        expect(result.sc, 0.0);
       });
     });
 
@@ -176,7 +177,7 @@ void main() {
     group('splitPoolsSeparately', () {
       test('adds rounding remainder to specified person', () {
         final result = TipCalculator.splitPoolsSeparately(
-          netPools: {'cc': 1000.0, 'sc': 0.0},
+          netPools: const Pools(cc: 1000.0),
           bartenderNames: ['You', 'Bob', 'Carol'],
           equalSplit: true,
           hours: {},
@@ -184,23 +185,23 @@ void main() {
         );
 
         // 1000 / 3 = 333.33 each, remainder 0.01 goes to 'You'
-        expect(result['You']!['cc'], 333.34);
-        expect(result['Bob']!['cc'], 333.33);
-        expect(result['Carol']!['cc'], 333.33);
+        expect(result['You']!.cc, 333.34);
+        expect(result['Bob']!.cc, 333.33);
+        expect(result['Carol']!.cc, 333.33);
       });
 
       test('does not add remainder when remainderTo is null', () {
         final result = TipCalculator.splitPoolsSeparately(
-          netPools: {'cc': 1000.0, 'sc': 0.0},
+          netPools: const Pools(cc: 1000.0),
           bartenderNames: ['You', 'Bob', 'Carol'],
           equalSplit: true,
           hours: {},
         );
 
         // 1000 / 3 = 333.33 each, remainder 0.01 is not added
-        expect(result['You']!['cc'], 333.33);
-        expect(result['Bob']!['cc'], 333.33);
-        expect(result['Carol']!['cc'], 333.33);
+        expect(result['You']!.cc, 333.33);
+        expect(result['Bob']!.cc, 333.33);
+        expect(result['Carol']!.cc, 333.33);
       });
     });
 
@@ -240,7 +241,7 @@ void main() {
     });
 
     group('calculateShift', () {
-      final totals = ShiftTotals(
+      const totals = ShiftTotals(
         creditCardTips: 800.0,
         serviceChargeTips: 200.0,
         sales: 5000.0,
@@ -275,8 +276,8 @@ void main() {
         // The barback pool is X = BB / N = 100 / 2 = $50, shared by the
         // two barbacks. Previously each barback was paid the full X,
         // which over-distributed the pool whenever more than one worked.
-        final dave = result.barbacks['Dave']!.values.reduce((a, b) => a + b);
-        final erin = result.barbacks['Erin']!.values.reduce((a, b) => a + b);
+        final dave = result.barbacks['Dave']!.total;
+        final erin = result.barbacks['Erin']!.total;
         expect(dave, closeTo(25.0, 0.01));
         expect(erin, closeTo(25.0, 0.01));
         expect(result.totalDistributed, closeTo(1000.0, 0.005));
@@ -293,8 +294,8 @@ void main() {
 
         // The solo path used to hard-code the label 'You'.
         expect(result.bartenders.keys, contains('Michael'));
-        expect(result.bartenders['Michael']!['cc'], 800.0);
-        expect(result.bartenders['Michael']!['sc'], 200.0);
+        expect(result.bartenders['Michael']!.cc, 800.0);
+        expect(result.bartenders['Michael']!.sc, 200.0);
       });
 
       test('flags negative lines when the barback cut exceeds tips', () {
@@ -315,7 +316,7 @@ void main() {
 
       test('splits by hours when equalSplit is false', () {
         final result = TipCalculator.calculateShift(
-          totals: ShiftTotals(creditCardTips: 900.0, serviceChargeTips: 0.0),
+          totals: const ShiftTotals(creditCardTips: 900.0, serviceChargeTips: 0.0),
           bartenderNames: ['You', 'Bob'],
           barbackNames: const [],
           userName: 'You',
@@ -324,8 +325,8 @@ void main() {
           hours: {'You': 8.0, 'Bob': 4.0},
         );
 
-        expect(result.bartenders['You']!['cc'], closeTo(600.0, 0.01));
-        expect(result.bartenders['Bob']!['cc'], closeTo(300.0, 0.01));
+        expect(result.bartenders['You']!.cc, closeTo(600.0, 0.01));
+        expect(result.bartenders['Bob']!.cc, closeTo(300.0, 0.01));
       });
     });
   });

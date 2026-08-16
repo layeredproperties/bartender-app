@@ -1,23 +1,14 @@
 import 'package:flutter/material.dart';
+
+import '../models/money.dart';
 import '../models/person.dart';
-import '../models/shift_totals.dart';
+import '../models/shift_draft.dart';
 import 'results_screen.dart';
 
 class HoursScreen extends StatefulWidget {
-  final List<Person> roster;
-  final ShiftTotals totals;
-  final List<Person> selectedPeople;
-  final double barbackCut;
-  final String userName;
+  final ShiftDraft draft;
 
-  const HoursScreen({
-    super.key,
-    required this.roster,
-    required this.totals,
-    required this.selectedPeople,
-    required this.barbackCut,
-    this.userName = 'You',
-  });
+  const HoursScreen({super.key, required this.draft});
 
   @override
   State<HoursScreen> createState() => _HoursScreenState();
@@ -25,18 +16,10 @@ class HoursScreen extends StatefulWidget {
 
 class _HoursScreenState extends State<HoursScreen> {
   bool _equalSplit = true;
-  final Map<String, TextEditingController> _hourControllers = {};
-
-  @override
-  void initState() {
-    super.initState();
-    // Initialize hour controllers for all selected bartenders
-    for (final person in widget.selectedPeople) {
-      if (person.role == Role.bartender) {
-        _hourControllers[person.name] = TextEditingController();
-      }
-    }
-  }
+  late final List<Person> _bartenders = widget.draft.bartenders;
+  late final Map<String, TextEditingController> _hourControllers = {
+    for (final person in _bartenders) person.name: TextEditingController(),
+  };
 
   @override
   void dispose() {
@@ -46,28 +29,23 @@ class _HoursScreenState extends State<HoursScreen> {
     super.dispose();
   }
 
-  double _parseHours(String value) {
-    return double.tryParse(value.trim()) ?? 0.0;
-  }
-
-  Map<String, double> _collectHours() => {
-        for (final person in widget.selectedPeople)
-          if (person.role == Role.bartender)
-            person.name: _parseHours(_hourControllers[person.name]?.text ?? ''),
-      };
-
   void _continue() {
     Map<String, double>? hours;
 
     if (!_equalSplit) {
-      hours = _collectHours();
-
       // Without this guard, blank or zero hours would pay everyone
       // $0.00 and dump the entire pool on the remainder person.
-      final invalid = hours.entries
-          .where((e) => !e.value.isFinite || e.value <= 0)
-          .map((e) => e.key)
-          .toList();
+      final invalid = <String>[];
+      hours = {};
+      for (final person in _bartenders) {
+        final parsed = parseAmount(_hourControllers[person.name]!.text);
+        if (parsed == null || !parsed.isFinite || parsed <= 0) {
+          invalid.add(person.name);
+        } else {
+          hours[person.name] = parsed;
+        }
+      }
+
       if (invalid.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -84,13 +62,11 @@ class _HoursScreenState extends State<HoursScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => ResultsScreen(
-          totals: widget.totals,
-          selectedPeople: widget.selectedPeople,
-          isSolo: false,
-          barbackCut: widget.barbackCut,
-          equalSplit: _equalSplit,
-          hours: hours,
-          userName: widget.userName,
+          draft: widget.draft.copyWith(
+            equalSplit: _equalSplit,
+            hours: hours,
+            clearHours: _equalSplit,
+          ),
         ),
       ),
     );
@@ -98,10 +74,6 @@ class _HoursScreenState extends State<HoursScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bartenders = widget.selectedPeople
-        .where((p) => p.role == Role.bartender)
-        .toList();
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Split Method'),
@@ -112,27 +84,24 @@ class _HoursScreenState extends State<HoursScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 8),
-            // Equal split option
             RadioGroup<bool>(
               groupValue: _equalSplit,
-              onChanged: (value) {
-                setState(() {
-                  _equalSplit = value ?? true;
-                });
-              },
+              onChanged: (value) => setState(() => _equalSplit = value ?? true),
+              // RadioListTile rather than a ListTile wrapped around a
+              // Radio, so the whole row is the tap target — and so this
+              // screen behaves like the barback screen's mode picker.
               child: const Column(
                 children: [
                   Card(
-                    child: ListTile(
-                      leading: Radio<bool>(value: true),
+                    child: RadioListTile<bool>(
+                      value: true,
                       title: Text('Equal Split'),
                       subtitle: Text('Everyone gets the same amount'),
                     ),
                   ),
-                  // Hourly split option
                   Card(
-                    child: ListTile(
-                      leading: Radio<bool>(value: false),
+                    child: RadioListTile<bool>(
+                      value: false,
                       title: Text('Hourly Split'),
                       subtitle: Text('Split based on hours worked'),
                     ),
@@ -147,7 +116,7 @@ class _HoursScreenState extends State<HoursScreen> {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
-              ...bartenders.map((person) {
+              ..._bartenders.map((person) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: TextField(
@@ -168,10 +137,6 @@ class _HoursScreenState extends State<HoursScreen> {
             const SizedBox(height: 32),
             ElevatedButton(
               onPressed: _continue,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                textStyle: const TextStyle(fontSize: 18),
-              ),
               child: const Text('Calculate'),
             ),
           ],

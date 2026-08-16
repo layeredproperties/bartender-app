@@ -81,3 +81,8 @@ ios/Flutter/flutter_assets/
 ios/Flutter/flutter_export_environment.sh
 ios/ServiceDefinitions.json
 ios/Runner/GeneratedPluginRegistrant.*
+
+# Keystore credentials and the keystore itself must never be committed.
+android/key.properties
+**/*.jks
+**/*.keystore

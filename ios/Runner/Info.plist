@@ -4,10 +4,21 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- The app does no networking and uses no encryption, so it is exempt
+	     from US export compliance. Declaring it here means App Store Connect
+	     stops asking on every single upload. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- Lets the tip log show up in the Files app, so a lost phone isn't a
+	     lost shift history. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Bartender Tip-Out</string>
+	<string>Tip Out</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +26,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>bartender_tip_out</string>
+	<string>Tip Out</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

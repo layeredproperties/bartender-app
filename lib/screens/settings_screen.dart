@@ -92,7 +92,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   max: SettingsService.maxTextScale,
                   divisions: 12,
                   label: '${(textScale * 100).round()}%',
-                  onChanged: settings.setTextScale,
+                  // Live preview while dragging, one write when the
+                  // gesture ends — this used to hit shared preferences
+                  // on every frame of the drag.
+                  onChanged: (value) =>
+                      settings.setTextScale(value, persist: false),
+                  onChangeEnd: settings.setTextScale,
                 ),
               ),
               IconButton(

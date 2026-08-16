@@ -3,7 +3,7 @@ class ShiftTotals {
   final double serviceChargeTips;
   final double sales;
 
-  ShiftTotals({
+  const ShiftTotals({
     required this.creditCardTips,
     required this.serviceChargeTips,
     this.sales = 0.0,

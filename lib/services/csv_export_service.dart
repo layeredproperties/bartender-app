@@ -3,13 +3,32 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/imported_shift.dart';
+import '../models/money.dart';
+import '../models/pools.dart';
 import '../models/shift_totals.dart';
 import '../models/tip_out_result.dart';
 
 class CsvExportService {
   static const String _fileName = 'tip_out_log.csv';
+
+  /// Rows a teammate sent you, tagged so "Replace Today" can leave them
+  /// alone.
+  static const String sourceLocal = 'Local';
+  static const String sourceImported = 'Imported';
+
   static const String _header =
-      'Date,Time,Type,Name,Credit Card Tips,Service Charge Tips,Net Sales,Barback Cut';
+      'Date,Time,Type,Name,Credit Card Tips,Service Charge Tips,Net Sales,'
+      'Barback Cut,Source';
+
+  /// The pre-Source header. Files shared by an older build of the app
+  /// still parse; rows already in a local log are treated as [sourceLocal].
+  static const String _legacyHeader =
+      'Date,Time,Type,Name,Credit Card Tips,Service Charge Tips,Net Sales,'
+      'Barback Cut';
+
+  /// Number of columns before Source — the part of a row that identifies
+  /// a shift, and so the part duplicate detection compares.
+  static const int _sourceIndex = 8;
 
   static Future<File> _logFile() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -23,9 +42,11 @@ class CsvExportService {
 
     final target = _dateStr(date);
     final lines = await file.readAsLines();
-    // Skip the header row and compare the parsed Date column rather
-    // than using startsWith, which could match a longer date string.
-    return lines.skip(1).any((line) => _firstField(line) == target);
+    // Compare the parsed Date column rather than using startsWith,
+    // which could match a longer date string.
+    return lines
+        .where((line) => !_isHeader(line))
+        .any((line) => _firstField(line) == target);
   }
 
   /// Append a shift entry to the CSV log file.
@@ -41,22 +62,27 @@ class CsvExportService {
       await file.writeAsString('$_header\n');
     }
 
-    final rows = _buildRows(
-      timestamp: timestamp,
-      totals: totals,
-      result: result,
-      barbackCut: barbackCut,
+    await file.writeAsString(
+      _buildRows(
+        timestamp: timestamp,
+        totals: totals,
+        result: result,
+        barbackCut: barbackCut,
+      ),
+      mode: FileMode.append,
+      flush: true,
     );
-
-    await file.writeAsString(rows, mode: FileMode.append, flush: true);
     return file.path;
   }
 
-  /// Replace the rows for [timestamp]'s date with a fresh set.
+  /// Replace this device's own rows for [timestamp]'s date with a fresh
+  /// set.
   ///
-  /// This is the "redo the shift" path: every row for that day is
-  /// dropped and replaced. Use [appendShift] to log a second shift on
-  /// the same day without discarding the first.
+  /// This is the "redo the shift" path. Rows a teammate shared with you
+  /// are kept: they're tagged [sourceImported] and are not this shift to
+  /// redo, so wiping them would silently destroy data the user never
+  /// entered here. Use [appendShift] to log a second shift on the same
+  /// day without discarding the first.
   static Future<String> overwriteToday({
     required DateTime timestamp,
     required ShiftTotals totals,
@@ -77,33 +103,41 @@ class CsvExportService {
     final target = _dateStr(timestamp);
     final lines = await file.readAsLines();
 
-    // Keep the header plus every row from a different date.
-    final kept = <String>[];
-    for (var i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      if (line.isEmpty) continue;
-      if (i == 0 && line == _header) {
-        continue; // header re-added below
-      }
-      if (_firstField(line) == target) continue;
-      kept.add(line);
-    }
-
-    final rows = _buildRows(
-      timestamp: timestamp,
-      totals: totals,
-      result: result,
-      barbackCut: barbackCut,
-    );
+    // Keep every row except this device's own rows for the target date.
+    final kept = lines.where((line) {
+      if (line.trim().isEmpty || _isHeader(line)) return false;
+      final sameDay = _firstField(line) == target;
+      return !(sameDay && _sourceOf(line) == sourceLocal);
+    });
 
     final buffer = StringBuffer()..writeln(_header);
     for (final line in kept) {
       buffer.writeln(line);
     }
-    buffer.write(rows);
+    buffer.write(_buildRows(
+      timestamp: timestamp,
+      totals: totals,
+      result: result,
+      barbackCut: barbackCut,
+    ));
 
     await file.writeAsString(buffer.toString(), flush: true);
     return file.path;
+  }
+
+  /// How many rows in the log for [date] came from a teammate — what
+  /// "Replace Today" will now preserve rather than delete.
+  static Future<int> importedRowCountForDate(DateTime date) async {
+    final file = await _logFile();
+    if (!await file.exists()) return 0;
+
+    final target = _dateStr(date);
+    final lines = await file.readAsLines();
+    return lines
+        .where((line) => !_isHeader(line) && line.trim().isNotEmpty)
+        .where((line) =>
+            _firstField(line) == target && _sourceOf(line) == sourceImported)
+        .length;
   }
 
   /// Build a standalone CSV (header + one shift's rows) suitable for
@@ -157,7 +191,7 @@ class CsvExportService {
         .where((l) => l.trim().isNotEmpty)
         .toList();
 
-    if (lines.isEmpty || lines.first.trim() != _header) {
+    if (lines.isEmpty || !_isHeader(lines.first)) {
       throw const FormatException('Not a recognized tip-out shift file.');
     }
 
@@ -167,12 +201,17 @@ class CsvExportService {
     String? dateStr;
     String? timeStr;
     var cc = 0.0, sc = 0.0, sales = 0.0, barbackCut = 0.0;
-    final barbacks = <String, Map<String, double>>{};
-    final bartenders = <String, Map<String, double>>{};
+    final barbacks = <String, Pools>{};
+    final bartenders = <String, Pools>{};
+
+    Pools poolsFrom(List<String> fields) => Pools(
+          cc: double.tryParse(fields[4]) ?? 0,
+          sc: double.tryParse(fields[5]) ?? 0,
+        );
 
     for (final row in rows) {
       final fields = _splitRow(row);
-      if (fields.length < 8) continue;
+      if (fields.length < _sourceIndex) continue;
 
       switch (fields[2]) {
         case 'Shift Totals':
@@ -184,15 +223,9 @@ class CsvExportService {
           sales = double.tryParse(fields[6]) ?? 0;
           barbackCut = double.tryParse(fields[7]) ?? 0;
         case 'Barback':
-          barbacks[fields[3]] = {
-            'cc': double.tryParse(fields[4]) ?? 0,
-            'sc': double.tryParse(fields[5]) ?? 0,
-          };
+          barbacks[fields[3]] = poolsFrom(fields);
         case 'Bartender':
-          bartenders[fields[3]] = {
-            'cc': double.tryParse(fields[4]) ?? 0,
-            'sc': double.tryParse(fields[5]) ?? 0,
-          };
+          bartenders[fields[3]] = poolsFrom(fields);
       }
     }
 
@@ -217,17 +250,24 @@ class CsvExportService {
   /// True when [totalsRowLine] (the exact "Shift Totals" row from a
   /// shared file) already appears in the local log — i.e. this exact
   /// shift has already been saved or imported.
+  ///
+  /// The Source column is excluded from the comparison, since importing
+  /// re-tags the row and it would otherwise never match.
   static Future<bool> hasDuplicateShift(String totalsRowLine) async {
     final file = await _logFile();
     if (!await file.exists()) return false;
+    final key = _shiftKey(totalsRowLine);
     final lines = await file.readAsLines();
-    return lines.contains(totalsRowLine);
+    return lines.any((line) => !_isHeader(line) && _shiftKey(line) == key);
   }
 
   /// Append an imported shift's rows to the local log, creating it with
-  /// a header if needed. Rows are appended verbatim, exactly as they
-  /// appeared in the shared file, so the numbers can't drift from what
-  /// the recipient previewed.
+  /// a header if needed.
+  ///
+  /// Every amount is copied through exactly as it appeared in the shared
+  /// file, so the numbers can't drift from what the recipient previewed.
+  /// Only the Source column is rewritten, tagging the rows
+  /// [sourceImported] so [overwriteToday] leaves them alone.
   static Future<String> importShift(ImportedShift shift) async {
     final file = await _logFile();
 
@@ -237,10 +277,14 @@ class CsvExportService {
 
     final buffer = StringBuffer();
     for (final row in shift.rawRows) {
-      buffer.writeln(row);
+      buffer.writeln(_withSource(row, sourceImported));
     }
 
-    await file.writeAsString(buffer.toString(), mode: FileMode.append, flush: true);
+    await file.writeAsString(
+      buffer.toString(),
+      mode: FileMode.append,
+      flush: true,
+    );
     return file.path;
   }
 
@@ -251,6 +295,7 @@ class CsvExportService {
     required ShiftTotals totals,
     required TipOutResult result,
     required double barbackCut,
+    String source = sourceLocal,
   }) {
     final buffer = StringBuffer();
     final date = _dateStr(timestamp);
@@ -261,39 +306,67 @@ class CsvExportService {
       time,
       'Shift Totals',
       '',
-      _money(totals.creditCardTips),
-      _money(totals.serviceChargeTips),
-      _money(totals.sales),
-      _money(barbackCut),
+      formatAmount(totals.creditCardTips),
+      formatAmount(totals.serviceChargeTips),
+      formatAmount(totals.sales),
+      formatAmount(barbackCut),
+      source,
     ]));
 
-    result.barbacks.forEach((name, pools) {
-      buffer.writeln(_row([
-        date,
-        time,
-        'Barback',
-        name,
-        _money(pools['cc'] ?? 0),
-        _money(pools['sc'] ?? 0),
-        '',
-        '',
-      ]));
-    });
+    void writePeople(String type, Map<String, Pools> people) {
+      people.forEach((name, pools) {
+        buffer.writeln(_row([
+          date,
+          time,
+          type,
+          name,
+          formatAmount(pools.cc),
+          formatAmount(pools.sc),
+          '',
+          '',
+          source,
+        ]));
+      });
+    }
 
-    result.bartenders.forEach((name, pools) {
-      buffer.writeln(_row([
-        date,
-        time,
-        'Bartender',
-        name,
-        _money(pools['cc'] ?? 0),
-        _money(pools['sc'] ?? 0),
-        '',
-        '',
-      ]));
-    });
+    writePeople('Barback', result.barbacks);
+    writePeople('Bartender', result.bartenders);
 
     return buffer.toString();
+  }
+
+  static bool _isHeader(String line) {
+    final trimmed = line.trim();
+    return trimmed == _header || trimmed == _legacyHeader;
+  }
+
+  /// The identity of a shift row, ignoring the Source column.
+  static String _shiftKey(String line) =>
+      _row(_splitRow(line).take(_sourceIndex).toList());
+
+  /// The Source column of a row. Rows written before the column existed
+  /// are treated as local, which preserves the old overwrite behaviour
+  /// for logs created by an earlier build.
+  static String _sourceOf(String line) {
+    final fields = _splitRow(line);
+    if (fields.length <= _sourceIndex) return sourceLocal;
+    final value = fields[_sourceIndex].trim();
+    return value.isEmpty ? sourceLocal : value;
+  }
+
+  /// Return [line] with its Source column set to [source], appending the
+  /// column when the row came from a pre-Source file.
+  static String _withSource(String line, String source) {
+    final fields = _splitRow(line);
+    while (fields.length < _sourceIndex) {
+      fields.add('');
+    }
+    if (fields.length == _sourceIndex) {
+      fields.add(source);
+    } else {
+      fields[_sourceIndex] = source;
+    }
+    return _row(fields);
   }
 
   /// Join fields into a CSV row, quoting any field that contains a
@@ -352,8 +425,6 @@ class CsvExportService {
     fields.add(buffer.toString());
     return fields;
   }
-
-  static String _money(double value) => value.toStringAsFixed(2);
 
   static String _dateStr(DateTime date) =>
       '${date.year}-${_pad(date.month)}-${_pad(date.day)}';

@@ -1,4 +1,4 @@
-import 'package:bartender_tip_out/main.dart';
+import 'package:tip_out/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,7 +15,7 @@ void main() {
     // Settle the async settings load before asserting.
     await tester.pumpAndSettle();
 
-    expect(find.text('Bartender Tip-Out'), findsOneWidget);
+    expect(find.text('Tip Out'), findsOneWidget);
     expect(find.text('Start Shift'), findsOneWidget);
   });
 

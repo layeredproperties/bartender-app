@@ -16,7 +16,7 @@ class HomeScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bartender Tip-Out'),
+        title: const Text('Tip Out'),
         actions: [
           IconButton(
             icon: const Icon(Icons.file_download),

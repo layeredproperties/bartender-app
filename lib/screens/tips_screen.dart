@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+
+import '../main.dart';
+import '../models/money.dart';
 import '../models/person.dart';
+import '../models/shift_draft.dart';
 import '../models/shift_totals.dart';
 import 'team_screen.dart';
 
@@ -13,6 +17,7 @@ class TipsScreen extends StatefulWidget {
 }
 
 class _TipsScreenState extends State<TipsScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _ccController = TextEditingController();
   final _scController = TextEditingController();
   final _salesController = TextEditingController();
@@ -25,23 +30,39 @@ class _TipsScreenState extends State<TipsScreen> {
     super.dispose();
   }
 
-  double _parseAmount(String value) {
-    return double.tryParse(value) ?? 0.0;
-  }
+  /// Reject anything [parseAmount] can't read instead of silently
+  /// treating it as $0.00 — a mistyped total used to run the whole shift
+  /// against an empty pool with no warning.
+  String? _validateAmount(String? value) =>
+      parseAmount(value ?? '') == null ? 'Enter an amount like 450.00' : null;
 
   void _continue() {
+    if (!_formKey.currentState!.validate()) return;
+
     final totals = ShiftTotals(
-      creditCardTips: _parseAmount(_ccController.text),
-      serviceChargeTips: _parseAmount(_scController.text),
-      sales: _parseAmount(_salesController.text),
+      creditCardTips: parseAmount(_ccController.text)!,
+      serviceChargeTips: parseAmount(_scController.text)!,
+      sales: parseAmount(_salesController.text)!,
     );
+
+    if (totals.totalTips <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter the credit card or service charge tips first'),
+        ),
+      );
+      return;
+    }
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => TeamScreen(
           roster: widget.roster,
-          totals: totals,
+          draft: ShiftDraft(
+            totals: totals,
+            userName: AppSettings.of(context).data.userName,
+          ),
         ),
       ),
     );
@@ -53,42 +74,41 @@ class _TipsScreenState extends State<TipsScreen> {
       appBar: AppBar(
         title: const Text('Enter Shift Totals'),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 8),
-            _buildAmountField(
-              controller: _ccController,
-              label: 'Credit Card Tips',
-              icon: Icons.credit_card,
-              hint: 'e.g. 450.00',
-            ),
-            const SizedBox(height: 16),
-            _buildAmountField(
-              controller: _scController,
-              label: 'Service Charge Tips',
-              icon: Icons.receipt_long,
-              hint: 'e.g. 75.50',
-            ),
-            const SizedBox(height: 16),
-            _buildAmountField(
-              controller: _salesController,
-              label: 'Net Sales (optional)',
-              icon: Icons.storefront,
-              hint: 'e.g. 5000.00',
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: _continue,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                textStyle: const TextStyle(fontSize: 18),
+      body: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 8),
+              _buildAmountField(
+                controller: _ccController,
+                label: 'Credit Card Tips',
+                icon: Icons.credit_card,
+                hint: 'e.g. 450.00',
               ),
-              child: const Text('Continue'),
-            ),
-          ],
+              const SizedBox(height: 16),
+              _buildAmountField(
+                controller: _scController,
+                label: 'Service Charge Tips',
+                icon: Icons.receipt_long,
+                hint: 'e.g. 75.50',
+              ),
+              const SizedBox(height: 16),
+              _buildAmountField(
+                controller: _salesController,
+                label: 'Net Sales (optional)',
+                icon: Icons.storefront,
+                hint: 'e.g. 5000.00',
+              ),
+              const SizedBox(height: 32),
+              ElevatedButton(
+                onPressed: _continue,
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -100,9 +120,11 @@ class _TipsScreenState extends State<TipsScreen> {
     required IconData icon,
     required String hint,
   }) {
-    return TextField(
+    return TextFormField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      autovalidateMode: AutovalidateMode.onUserInteraction,
+      validator: _validateAmount,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,

@@ -1,12 +1,18 @@
 enum Role { bartender, barback }
 
+/// A roster entry.
+///
+/// Immutable: the tip-out is keyed by name and the same instances are
+/// held by the app-wide roster and by whichever screen is on top, so
+/// screens swap entries with [copyWith] rather than flipping fields on
+/// an object someone else is reading.
 class Person {
   final String name;
   final Role role;
-  bool isSelected;
+  final bool isSelected;
   final bool isUser;
 
-  Person({
+  const Person({
     required this.name,
     required this.role,
     this.isSelected = false,

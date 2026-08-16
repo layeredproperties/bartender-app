@@ -3,31 +3,18 @@ import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../models/person.dart';
-import '../models/shift_totals.dart';
+import '../models/money.dart';
+import '../models/pools.dart';
+import '../models/shift_draft.dart';
 import '../models/tip_out_result.dart';
 import '../services/csv_export_service.dart';
 import '../services/tip_calculator.dart';
+import '../widgets/money_row.dart';
 
 class ResultsScreen extends StatefulWidget {
-  final ShiftTotals totals;
-  final List<Person> selectedPeople;
-  final bool isSolo;
-  final double barbackCut;
-  final bool equalSplit;
-  final Map<String, double>? hours;
-  final String userName;
+  final ShiftDraft draft;
 
-  const ResultsScreen({
-    super.key,
-    required this.totals,
-    required this.selectedPeople,
-    required this.isSolo,
-    this.barbackCut = 0.0,
-    this.equalSplit = true,
-    this.hours,
-    this.userName = 'You',
-  });
+  const ResultsScreen({super.key, required this.draft});
 
   @override
   State<ResultsScreen> createState() => _ResultsScreenState();
@@ -44,62 +31,50 @@ class _ResultsScreenState extends State<ResultsScreen> {
     _result = _calculate();
   }
 
-  /// All calculation now lives in [TipCalculator] so it can be unit
-  /// tested; this screen only renders the result.
+  /// All calculation lives in [TipCalculator] so it can be unit tested;
+  /// this screen only renders the result.
   TipOutResult _calculate() {
-    final bartenderNames = widget.selectedPeople
-        .where((p) => p.role == Role.bartender)
-        .map((p) => p.name)
-        .toSet()
-        .toList();
-    final barbackNames = widget.selectedPeople
-        .where((p) => p.role == Role.barback)
-        .map((p) => p.name)
-        .toSet()
-        .toList();
-
+    final draft = widget.draft;
     return TipCalculator.calculateShift(
-      totals: widget.totals,
-      bartenderNames: bartenderNames,
-      barbackNames: barbackNames,
-      userName: widget.userName,
-      isSolo: widget.isSolo,
-      barbackCut: widget.barbackCut,
-      equalSplit: widget.equalSplit,
-      hours: widget.hours,
+      totals: draft.totals,
+      // Names are unique by construction — the roster screen rejects
+      // duplicates — so they're passed straight through. Silently
+      // de-duplicating here is what used to hide the collision.
+      bartenderNames: draft.bartenders.map((p) => p.name).toList(),
+      barbackNames: draft.barbacks.map((p) => p.name).toList(),
+      userName: draft.userName,
+      isSolo: draft.isSolo,
+      barbackCut: draft.barbackCut,
+      equalSplit: draft.equalSplit,
+      hours: draft.hours,
     );
   }
 
-  String _money(double value) => '\$${value.toStringAsFixed(2)}';
-
   String _buildShareText() {
+    final totals = widget.draft.totals;
     final buffer = StringBuffer()
       ..writeln('Tip-Out Results')
-      ..writeln('Total Tips: ${_money(widget.totals.totalTips)}')
+      ..writeln('Total Tips: ${formatMoney(totals.totalTips)}')
       ..writeln(
-        'CC: ${_money(widget.totals.creditCardTips)}  '
-        'SC: ${_money(widget.totals.serviceChargeTips)}',
+        'CC: ${formatMoney(totals.creditCardTips)}  '
+        'SC: ${formatMoney(totals.serviceChargeTips)}',
       )
       ..writeln();
 
-    if (_result.barbacks.isNotEmpty) {
-      buffer.writeln('Barbacks:');
-      _result.barbacks.forEach((name, pools) {
+    void writeGroup(String heading, Map<String, Pools> people) {
+      if (people.isEmpty) return;
+      buffer.writeln('$heading:');
+      people.forEach((name, pools) {
         buffer.writeln(
-          '  $name — CC ${_money(pools['cc'] ?? 0)}, '
-          'SC ${_money(pools['sc'] ?? 0)}',
+          '  $name — CC ${formatMoney(pools.cc)}, '
+          'SC ${formatMoney(pools.sc)}',
         );
       });
       buffer.writeln();
     }
 
-    buffer.writeln('Bartenders:');
-    _result.bartenders.forEach((name, pools) {
-      buffer.writeln(
-        '  $name — CC ${_money(pools['cc'] ?? 0)}, '
-        'SC ${_money(pools['sc'] ?? 0)}',
-      );
-    });
+    writeGroup('Barbacks', _result.barbacks);
+    writeGroup('Bartenders', _result.bartenders);
 
     return buffer.toString();
   }
@@ -109,9 +84,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     // out to `pbcopy`, which crashes on iOS and Android.
     await Clipboard.setData(ClipboardData(text: _buildShareText()));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Results copied to clipboard')),
-    );
+    _notify('Results copied to clipboard');
   }
 
   /// Shares a small CSV file (in addition to the human-readable text)
@@ -122,9 +95,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
     try {
       final path = await CsvExportService.writeShareableFile(
         timestamp: DateTime.now(),
-        totals: widget.totals,
+        totals: widget.draft.totals,
         result: _result,
-        barbackCut: widget.barbackCut,
+        barbackCut: widget.draft.barbackCut,
       );
       await Share.shareXFiles(
         [XFile(path, mimeType: 'text/csv')],
@@ -133,9 +106,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not share results: $e')),
-      );
+      _notify('Could not share results: $e');
     }
   }
 
@@ -149,8 +120,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
     try {
       var overwrite = false;
       if (await CsvExportService.hasDataForDate(now)) {
+        final imported = await CsvExportService.importedRowCountForDate(now);
         if (!mounted) return;
-        final choice = await _askDuplicateDate();
+        final choice = await _askDuplicateDate(imported);
         if (choice == null) {
           if (mounted) setState(() => _saving = false);
           return;
@@ -158,59 +130,57 @@ class _ResultsScreenState extends State<ResultsScreen> {
         overwrite = choice;
       }
 
-      final path = overwrite
-          ? await CsvExportService.overwriteToday(
-              timestamp: now,
-              totals: widget.totals,
-              result: _result,
-              barbackCut: widget.barbackCut,
-            )
-          : await CsvExportService.appendShift(
-              timestamp: now,
-              totals: widget.totals,
-              result: _result,
-              barbackCut: widget.barbackCut,
-            );
+      final save = overwrite
+          ? CsvExportService.overwriteToday
+          : CsvExportService.appendShift;
+      final path = await save(
+        timestamp: now,
+        totals: widget.draft.totals,
+        result: _result,
+        barbackCut: widget.draft.barbackCut,
+      );
 
       if (!mounted) return;
       setState(() {
         _csvPath = path;
         _saving = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Shift saved to tip log')),
-      );
+      _notify('Shift saved to tip log');
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save log: $e')),
-      );
+      _notify('Could not save log: $e');
     }
   }
 
   /// Returns true to overwrite the day, false to append a second
   /// shift, or null if the user cancels.
-  Future<bool?> _askDuplicateDate() {
+  Future<bool?> _askDuplicateDate(int importedRows) {
     return showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Entry Already Exists'),
-        content: const Text(
+        content: Text(
           'The log already has an entry for today. Add this as a second '
-          'shift, or replace today\'s entries?',
+          'shift, or replace the entries you saved today?'
+          // Replacing leaves imported rows alone, but say so: the user
+          // can see those rows in the log and would otherwise expect
+          // "replace today" to take them too.
+          '${importedRows > 0 ? '\n\nShifts teammates shared with you '
+              '($importedRows ${importedRows == 1 ? 'row' : 'rows'}) '
+              'are kept either way.' : ''}',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Add Second Shift'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Replace Today'),
           ),
         ],
@@ -226,16 +196,21 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final result = await OpenFilex.open(path);
     if (!mounted) return;
     if (result.type != ResultType.done) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open file: ${result.message}')),
-      );
+      _notify('Could not open file: ${result.message}');
     }
+  }
+
+  void _notify(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final totalTips = widget.totals.totalTips;
+    final draft = widget.draft;
+    final totals = draft.totals;
 
     return Scaffold(
       appBar: AppBar(
@@ -252,42 +227,33 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 children: [
                   Text('Shift Totals', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 8),
-                  _row('Credit Card Tips',
-                      _money(widget.totals.creditCardTips)),
-                  _row('Service Charge Tips',
-                      _money(widget.totals.serviceChargeTips)),
-                  _row('Net Sales', _money(widget.totals.sales)),
-                  if (!widget.isSolo && widget.barbackCut > 0)
-                    _row('Barback Tip-Out', _money(widget.barbackCut)),
+                  MoneyRow(
+                      'Credit Card Tips', formatMoney(totals.creditCardTips)),
+                  MoneyRow('Service Charge Tips',
+                      formatMoney(totals.serviceChargeTips)),
+                  MoneyRow('Net Sales', formatMoney(totals.sales)),
+                  if (!draft.isSolo && draft.barbackCut > 0)
+                    MoneyRow('Barback Tip-Out', formatMoney(draft.barbackCut)),
                   const Divider(),
-                  _row('Total Tips', _money(totalTips), bold: true),
+                  MoneyRow('Total Tips', formatMoney(totals.totalTips),
+                      bold: true),
                 ],
               ),
             ),
           ),
+          // A shift with no bartenders distributes nothing. The team
+          // screen blocks it, but say so plainly rather than showing a
+          // screen of $0.00 lines if it ever gets here.
+          if (_result.bartenders.isEmpty && totals.totalTips > 0)
+            const WarningCard(
+              'No bartenders were selected, so there is nobody to split '
+              'these tips between. Go back and select who worked.',
+            ),
           if (_result.hasNegativeLines)
-            Card(
-              color: theme.colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Icon(Icons.warning_amber,
-                        color: theme.colorScheme.onErrorContainer),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'The barback tip-out is larger than this shift can '
-                        'support, so some line items are negative. Go back '
-                        'and lower the tip-out.',
-                        style: TextStyle(
-                          color: theme.colorScheme.onErrorContainer,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            const WarningCard(
+              'The barback tip-out is larger than this shift can support, '
+              'so some line items are negative. Go back and lower the '
+              'tip-out.',
             ),
           if (_result.barbacks.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -305,9 +271,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: _row(
+              child: MoneyRow(
                 'Total Distributed',
-                _money(_result.totalDistributed),
+                formatMoney(_result.totalDistributed),
                 bold: true,
               ),
             ),
@@ -333,20 +299,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: _copyResults,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              textStyle: const TextStyle(fontSize: 18),
-            ),
             icon: const Icon(Icons.copy),
             label: const Text('Copy Results'),
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: _shareResults,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              textStyle: const TextStyle(fontSize: 18),
-            ),
             icon: const Icon(Icons.share),
             label: const Text('Share'),
           ),
@@ -361,44 +319,23 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _personCard(String name, Map<String, double> pools) {
-    final cc = pools['cc'] ?? 0;
-    final sc = pools['sc'] ?? 0;
+  Widget _personCard(String name, Pools pools) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              name,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
+            Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             // Zero and negative rows are shown rather than hidden, so
             // the displayed lines always add up to the total.
-            _row('Credit Card Tips', _money(cc)),
-            _row('Service Charge Tips', _money(sc)),
+            MoneyRow('Credit Card Tips', formatMoney(pools.cc)),
+            MoneyRow('Service Charge Tips', formatMoney(pools.sc)),
             const Divider(),
-            _row('Total', _money(cc + sc), bold: true),
+            MoneyRow('Total', formatMoney(pools.total), bold: true),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _row(String label, String value, {bool bold = false}) {
-    final style = TextStyle(
-      fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-    );
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Flexible(child: Text(label, style: style)),
-          Text(value, style: style),
-        ],
       ),
     );
   }

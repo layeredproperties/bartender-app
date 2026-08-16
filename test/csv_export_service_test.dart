@@ -1,8 +1,9 @@
 import 'dart:io';
 
-import 'package:bartender_tip_out/models/shift_totals.dart';
-import 'package:bartender_tip_out/models/tip_out_result.dart';
-import 'package:bartender_tip_out/services/csv_export_service.dart';
+import 'package:tip_out/models/pools.dart';
+import 'package:tip_out/models/shift_totals.dart';
+import 'package:tip_out/models/tip_out_result.dart';
+import 'package:tip_out/services/csv_export_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
@@ -29,18 +30,18 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  final totals = ShiftTotals(
+  const totals = ShiftTotals(
     creditCardTips: 320.5,
     serviceChargeTips: 40,
     sales: 1200,
   );
-  final result = const TipOutResult(
+  const result = TipOutResult(
     bartenders: {
-      'You': {'cc': 200.25, 'sc': 25.0},
-      'Bob': {'cc': 120.25, 'sc': 15.0},
+      'You': Pools(cc: 200.25, sc: 25.0),
+      'Bob': Pools(cc: 120.25, sc: 15.0),
     },
     barbacks: {
-      'Charlie': {'cc': 0.0, 'sc': 0.0},
+      'Charlie': Pools(cc: 0.0, sc: 0.0),
     },
   );
   final timestamp = DateTime(2026, 8, 11, 15, 45);
@@ -62,17 +63,17 @@ void main() {
       expect(parsed.serviceChargeTips, 40.0);
       expect(parsed.sales, 1200.0);
       expect(parsed.barbackCut, 30.0);
-      expect(parsed.bartenders['You'], {'cc': 200.25, 'sc': 25.0});
-      expect(parsed.bartenders['Bob'], {'cc': 120.25, 'sc': 15.0});
-      expect(parsed.barbacks['Charlie'], {'cc': 0.0, 'sc': 0.0});
+      expect(parsed.bartenders['You'], const Pools(cc: 200.25, sc: 25.0));
+      expect(parsed.bartenders['Bob'], const Pools(cc: 120.25, sc: 15.0));
+      expect(parsed.barbacks['Charlie'], const Pools(cc: 0.0, sc: 0.0));
       // rawRows should be reusable verbatim as the appended log lines.
       expect(parsed.rawRows.length, 4); // totals + 2 bartenders + 1 barback
     });
 
     test('handles a name containing a comma via quoting', () {
-      final commaResult = const TipOutResult(
+      const commaResult = TipOutResult(
         bartenders: {
-          'Smith, John': {'cc': 100.0, 'sc': 10.0},
+          'Smith, John': Pools(cc: 100.0, sc: 10.0),
         },
         barbacks: {},
       );

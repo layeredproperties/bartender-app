@@ -4,7 +4,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/imported_shift.dart';
+import '../models/money.dart';
+import '../models/pools.dart';
 import '../services/csv_export_service.dart';
+import '../widgets/money_row.dart';
 
 /// Lets the user pick a shift CSV a teammate shared with them (via
 /// AirDrop, Messages, etc. — saved to Files/Downloads) and add it to
@@ -35,7 +38,10 @@ class _ImportScreenState extends State<ImportScreen> {
         type: FileType.custom,
         allowedExtensions: ['csv'],
       );
-      final path = result?.files.single.path;
+      // `files.single` throws when the picker returns an empty
+      // selection; firstOrNull treats it as a cancel, which is what it
+      // is.
+      final path = result?.files.firstOrNull?.path;
       if (path == null) {
         // User cancelled the picker.
         if (mounted) setState(() => _busy = false);
@@ -100,8 +106,6 @@ class _ImportScreenState extends State<ImportScreen> {
     });
   }
 
-  String _money(double value) => '\$${value.toStringAsFixed(2)}';
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -124,10 +128,7 @@ class _ImportScreenState extends State<ImportScreen> {
           ),
           if (_error != null) ...[
             const SizedBox(height: 16),
-            Text(
-              _error!,
-              style: TextStyle(color: theme.colorScheme.error),
-            ),
+            Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
           ],
           if (shift != null) ...[
             const SizedBox(height: 24),
@@ -142,57 +143,27 @@ class _ImportScreenState extends State<ImportScreen> {
                       style: theme.textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
-                    _row('Credit Card Tips', _money(shift.creditCardTips)),
-                    _row('Service Charge Tips', _money(shift.serviceChargeTips)),
-                    _row('Net Sales', _money(shift.sales)),
+                    MoneyRow('Credit Card Tips',
+                        formatMoney(shift.creditCardTips)),
+                    MoneyRow('Service Charge Tips',
+                        formatMoney(shift.serviceChargeTips)),
+                    MoneyRow('Net Sales', formatMoney(shift.sales)),
                     if (shift.barbackCut > 0)
-                      _row('Barback Tip-Out', _money(shift.barbackCut)),
+                      MoneyRow(
+                          'Barback Tip-Out', formatMoney(shift.barbackCut)),
                     const Divider(),
-                    _row('Total Tips', _money(shift.totalTips), bold: true),
-                    if (shift.barbacks.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Text('Barbacks', style: theme.textTheme.titleSmall),
-                      ...shift.barbacks.entries.map(
-                        (e) => _row(
-                          e.key,
-                          _money((e.value['cc'] ?? 0) + (e.value['sc'] ?? 0)),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    Text('Bartenders', style: theme.textTheme.titleSmall),
-                    ...shift.bartenders.entries.map(
-                      (e) => _row(
-                        e.key,
-                        _money((e.value['cc'] ?? 0) + (e.value['sc'] ?? 0)),
-                      ),
-                    ),
+                    MoneyRow('Total Tips', formatMoney(shift.totalTips),
+                        bold: true),
+                    ..._group(theme, 'Barbacks', shift.barbacks),
+                    ..._group(theme, 'Bartenders', shift.bartenders),
                   ],
                 ),
               ),
             ),
             if (_duplicate) ...[
               const SizedBox(height: 16),
-              Card(
-                color: theme.colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Icon(Icons.warning_amber,
-                          color: theme.colorScheme.onErrorContainer),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'This exact shift already appears in your tip log.',
-                          style: TextStyle(
-                            color: theme.colorScheme.onErrorContainer,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              const WarningCard(
+                'This exact shift already appears in your tip log.',
               ),
             ],
             const SizedBox(height: 16),
@@ -208,7 +179,8 @@ class _ImportScreenState extends State<ImportScreen> {
                 Expanded(
                   child: FilledButton(
                     onPressed: _busy ? null : _confirmImport,
-                    child: Text(_duplicate ? 'Add Anyway' : 'Add to My Tip Log'),
+                    child:
+                        Text(_duplicate ? 'Add Anyway' : 'Add to My Tip Log'),
                   ),
                 ),
               ],
@@ -219,19 +191,18 @@ class _ImportScreenState extends State<ImportScreen> {
     );
   }
 
-  Widget _row(String label, String value, {bool bold = false}) {
-    final style = TextStyle(
-      fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-    );
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Flexible(child: Text(label, style: style)),
-          Text(value, style: style),
-        ],
+  List<Widget> _group(
+    ThemeData theme,
+    String heading,
+    Map<String, Pools> people,
+  ) {
+    if (people.isEmpty) return const [];
+    return [
+      const SizedBox(height: 12),
+      Text(heading, style: theme.textTheme.titleSmall),
+      ...people.entries.map(
+        (e) => MoneyRow(e.key, formatMoney(e.value.total)),
       ),
-    );
+    ];
   }
 }

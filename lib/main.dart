@@ -29,8 +29,13 @@ class AppSettingsData {
 class AppSettings extends InheritedWidget {
   final AppSettingsData data;
   final ValueChanged<String> setUserName;
-  final ValueChanged<double> setTextScale;
   final ValueChanged<List<Person>> setRoster;
+
+  /// Update the live text scale. Pass `persist: false` while a gesture
+  /// is in flight — the slider fires this on every frame, and writing to
+  /// shared preferences at 60 Hz means a platform-channel round trip per
+  /// frame for a value the user hasn't settled on yet.
+  final void Function(double scale, {bool persist}) setTextScale;
 
   const AppSettings({
     super.key,
@@ -74,25 +79,27 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _load() async {
-    final userName = await SettingsService.loadUserName();
-    final textScale = await SettingsService.loadTextScale();
-    final roster = await SettingsService.loadRoster(userName);
+    // One preferences instance, one pass — the old version awaited three
+    // separate loads in series before the first frame could render.
+    final stored = await SettingsService.loadAll();
     if (!mounted) return;
     setState(() {
-      _userName = userName;
-      _textScale = textScale;
-      _roster = roster;
+      _userName = stored.userName;
+      _textScale = stored.textScale;
+      _roster = stored.roster;
       _loaded = true;
     });
   }
 
-  void _setTextScale(double scale) {
+  void _setTextScale(double scale, {bool persist = true}) {
     final clamped = scale.clamp(
       SettingsService.minTextScale,
       SettingsService.maxTextScale,
     );
-    setState(() => _textScale = clamped);
-    SettingsService.saveTextScale(clamped);
+    if (clamped != _textScale) {
+      setState(() => _textScale = clamped);
+    }
+    if (persist) SettingsService.saveTextScale(clamped);
   }
 
   void _setUserName(String name) {
@@ -101,10 +108,11 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _userName = trimmed;
       // Keep the roster's user entry in sync so the calculator's
-      // remainder lookup still matches after a rename.
-      _roster = _roster
-          .map((p) => p.isUser ? p.copyWith(name: trimmed) : p)
-          .toList();
+      // remainder lookup still matches after a rename, and re-run the
+      // uniqueness pass in case the new name collides with a teammate.
+      _roster = SettingsService.ensureUniqueNames(
+        _roster.map((p) => p.isUser ? p.copyWith(name: trimmed) : p).toList(),
+      );
     });
     SettingsService.saveUserName(trimmed);
     SettingsService.saveRoster(_roster);
@@ -114,6 +122,13 @@ class _MyAppState extends State<MyApp> {
     setState(() => _roster = List<Person>.from(roster));
     SettingsService.saveRoster(_roster);
   }
+
+  /// Shared button sizing, so the six call sites that each repeated
+  /// `padding: symmetric(vertical: 16)` + `fontSize: 18` don't have to.
+  static const ButtonStyle _primaryButtonStyle = ButtonStyle(
+    padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 16)),
+    textStyle: WidgetStatePropertyAll(TextStyle(fontSize: 18)),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -130,10 +145,14 @@ class _MyAppState extends State<MyApp> {
       setTextScale: _setTextScale,
       setRoster: _setRoster,
       child: MaterialApp(
-        title: 'Bartender Tip-Out',
+        title: 'Tip Out',
         theme: ThemeData(
           colorSchemeSeed: Colors.blue,
           useMaterial3: true,
+          elevatedButtonTheme:
+              const ElevatedButtonThemeData(style: _primaryButtonStyle),
+          outlinedButtonTheme:
+              const OutlinedButtonThemeData(style: _primaryButtonStyle),
         ),
         // Global font scaling for accessibility
         builder: (context, child) {

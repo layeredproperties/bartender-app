@@ -1,3 +1,5 @@
+import 'pools.dart';
+
 /// A shift parsed from a shared tip-out CSV file, ready for preview and
 /// import into the local tip log.
 ///
@@ -12,15 +14,17 @@ class ImportedShift {
   final double sales;
   final double barbackCut;
 
-  /// Name -> {'cc': amount, 'sc': amount} for barback rows in the file.
-  final Map<String, Map<String, double>> barbacks;
+  /// Name -> line item for barback rows in the file.
+  final Map<String, Pools> barbacks;
 
-  /// Name -> {'cc': amount, 'sc': amount} for bartender rows in the file.
-  final Map<String, Map<String, double>> bartenders;
+  /// Name -> line item for bartender rows in the file.
+  final Map<String, Pools> bartenders;
 
   /// The raw CSV rows (excluding header) exactly as they appeared in the
-  /// shared file — appended verbatim to the local log on import so the
-  /// figures can't drift from what was displayed in the preview.
+  /// shared file — appended to the local log on import so the figures
+  /// can't drift from what was displayed in the preview. Only the Source
+  /// column is rewritten on import (see `CsvExportService.importShift`);
+  /// every amount is passed through untouched.
   final List<String> rawRows;
 
   final String totalsRowLine;

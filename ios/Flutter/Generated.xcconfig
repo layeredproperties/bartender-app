@@ -1,7 +1,7 @@
 // This is a generated file; do not edit or check into version control.
 FLUTTER_ROOT=/opt/homebrew/share/flutter
-FLUTTER_APPLICATION_PATH=/Volumes/Data/9. Coding/Bartender App_VS Code
-FLUTTER_FRAMEWORK_SWIFT_PACKAGE_PATH=/Volumes/Data/9. Coding/Bartender App_VS Code/ios/Flutter/ephemeral/Packages/.packages/FlutterFramework
+FLUTTER_APPLICATION_PATH=/Users/michaelsullivan/Code/Bartender App
+FLUTTER_FRAMEWORK_SWIFT_PACKAGE_PATH=/Users/michaelsullivan/Code/Bartender App/ios/Flutter/ephemeral/Packages/.packages/FlutterFramework
 COCOAPODS_PARALLEL_CODE_SIGN=true
 FLUTTER_TARGET=lib/main.dart
 FLUTTER_BUILD_DIR=build
@@ -9,7 +9,8 @@ FLUTTER_BUILD_NAME=1.0.0
 FLUTTER_BUILD_NUMBER=1
 EXCLUDED_ARCHS[sdk=iphonesimulator*]=i386
 EXCLUDED_ARCHS[sdk=iphoneos*]=armv7
+DART_DEFINES=RkxVVFRFUl9WRVJTSU9OPTMuNDQuOQ==,RkxVVFRFUl9DSEFOTkVMPXN0YWJsZQ==,RkxVVFRFUl9HSVRfVVJMPWh0dHBzOi8vZ2l0aHViLmNvbS9mbHV0dGVyL2ZsdXR0ZXIuZ2l0,RkxVVFRFUl9GUkFNRVdPUktfUkVWSVNJT049NmIxODJkMmM3NQ==,RkxVVFRFUl9FTkdJTkVfUkVWSVNJT049NWEyYTZhNDJjYw==,RkxVVFRFUl9EQVJUX1ZFUlNJT049My4xMi4y
 DART_OBFUSCATION=false
-TRACK_WIDGET_CREATION=true
-TREE_SHAKE_ICONS=false
-PACKAGE_CONFIG=.dart_tool/package_config.json
+TRACK_WIDGET_CREATION=false
+TREE_SHAKE_ICONS=true
+PACKAGE_CONFIG=/Users/michaelsullivan/Code/Bartender App/.dart_tool/package_config.json

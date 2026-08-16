@@ -1,4 +1,4 @@
-package com.example.bartender_tip_out
+package com.layeredproperties.tipout
 
 import io.flutter.embedding.android.FlutterActivity
 
