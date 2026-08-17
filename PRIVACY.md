@@ -56,4 +56,4 @@ address and the date at the top will be revised.
 
 ## Contact
 
-Questions about this policy: michaelsullivan917@gmail.com
+Questions about this policy: layeredproperties@gmail.com
