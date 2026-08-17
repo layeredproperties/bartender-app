@@ -26,9 +26,13 @@ Budget 1–2 days; approval is not instant.
    - The fastest route is the **Apple Developer app on an iPhone** —
      it verifies your identity with Face ID and usually clears in under
      a day. The web form can take longer.
-   - Choose **Individual**, not Organization. Organization requires a
-     D-U-N-S number and takes weeks. As an Individual your legal name
-     is shown publicly as the seller.
+   - **Individual vs Organization matters for privacy.** An Individual
+     enrolment publishes your legal name as the seller on every App
+     Store listing, and it cannot be hidden or changed later. An
+     Organization enrolment shows the company name instead, but needs a
+     registered legal entity and a free D-U-N-S number, which adds
+     weeks. Decide before paying — switching afterwards means a new
+     enrolment.
    - $99/year.
 3. Wait for the approval email.
 4. Once approved, get your **Team ID**: <https://developer.apple.com/account>
