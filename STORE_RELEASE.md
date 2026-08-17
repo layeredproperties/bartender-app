@@ -41,21 +41,19 @@ Budget 1–2 days; approval is not instant.
 
 ---
 
-## Part 2 — Host the privacy policy **[you]**
+## Part 2 — Privacy policy — DONE ✅
 
-Apple will not accept the submission without a public URL. `PRIVACY.md`
-in this repo is ready to publish; it just needs somewhere to live.
+Apple will not accept the submission without a public URL. The policy is
+live and verified (HTTP 200):
 
-Easiest free option, GitHub Pages:
+> **https://layeredproperties.github.io/bartender-app/PRIVACY**
 
-1. Push this project to a GitHub repo (it can be private — Pages content
-   is served from a separate public branch if you prefer, but a simple
-   public repo is fine since there are no secrets in it).
-2. Repo → **Settings** → **Pages** → Source: `Deploy from a branch`,
-   Branch: `main`, Folder: `/ (root)` → Save.
-3. Wait ~2 minutes. Your policy is then at
-   `https://<your-username>.github.io/<repo-name>/PRIVACY`
-4. Open that URL to confirm it loads, then keep it handy for Part 5.
+Served by GitHub Pages from `PRIVACY.md` on `main`. Editing that file and
+pushing republishes it within a minute or two. Paste this URL into the
+Privacy Policy URL field in Part 5.
+
+Support URL (also required) can be the repo itself:
+`https://github.com/layeredproperties/bartender-app`
 
 ---
 
