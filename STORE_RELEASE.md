@@ -216,7 +216,7 @@ The Android side is configured but needs two things first:
    storePassword=<the password you just typed>
    keyPassword=<same password>
    keyAlias=upload
-   storeFile=/Users/michaelsullivan/tipout-upload-key.jks
+   storeFile=/Users/<your-username>/tipout-upload-key.jks
    ```
 
    Build with `flutter build appbundle` → `build/app/outputs/bundle/release/app-release.aab`.
