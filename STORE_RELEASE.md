@@ -22,18 +22,14 @@ Budget 1–2 days; approval is not instant.
 1. Your Apple ID must have **two-factor authentication** switched on
    first, or enrollment will refuse to start.
    Check at <https://appleid.apple.com> → Sign-In and Security.
-2. Enroll at <https://developer.apple.com/programs/enroll/>.
+2. Enroll at <https://developer.apple.com/programs/enroll/> as an
+   **Individual**. $99/year.
    - The fastest route is the **Apple Developer app on an iPhone** —
      it verifies your identity with Face ID and usually clears in under
      a day. The web form can take longer.
-   - **Individual vs Organization matters for privacy.** An Individual
-     enrolment publishes your legal name as the seller on every App
-     Store listing, and it cannot be hidden or changed later. An
-     Organization enrolment shows the company name instead, but needs a
-     registered legal entity and a free D-U-N-S number, which adds
-     weeks. Decide before paying — switching afterwards means a new
-     enrolment.
-   - $99/year.
+   - No website and no company-domain email are needed. Those are
+     Organization requirements; an Individual enrolment needs only an
+     Apple ID with two-factor auth.
 3. Wait for the approval email.
 4. Once approved, get your **Team ID**: <https://developer.apple.com/account>
    → Membership details. It looks like `A1B2C3D4E5`. Send it to me and
@@ -42,6 +38,18 @@ Budget 1–2 days; approval is not instant.
 > You do **not** need to manually register the bundle ID or create
 > certificates. Xcode's automatic signing does both the first time you
 > build.
+
+**Decided: Individual.** An Individual enrolment publishes your verified
+legal name as the seller on the App Store listing. That was weighed and
+accepted for this app. The alternative — an Organization enrolment,
+which shows *Layered Properties LLC* instead — remains available using
+the LLC's existing D-U-N-S number, but only if chosen **before** paying:
+Apple ties the seller identity to the enrolment, and switching later
+means a support request Apple may decline.
+
+Everything else in this repo already carries the Layered Properties name
+rather than a personal one — bundle ID, copyright string, commit
+identity, and the privacy policy contact.
 
 ---
 
