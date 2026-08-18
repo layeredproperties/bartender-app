@@ -56,16 +56,19 @@ class HomeScreen extends StatelessWidget {
             ElevatedButton(
               onPressed: () {
                 // Clear last shift's selections so a new shift starts
-                // from a clean slate (the user stays selected).
-                final roster = settings.data.roster
-                    .map((p) => p.copyWith(isSelected: p.isUser))
-                    .toList();
-                settings.setRoster(roster);
+                // from a clean slate (the user stays selected). The
+                // screens ahead read the roster from AppSettings rather
+                // than being handed a copy, so this is all they need.
+                settings.setRoster(
+                  settings.data.roster
+                      .map((p) => p.copyWith(isSelected: p.isUser))
+                      .toList(),
+                );
 
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => TipsScreen(roster: roster),
+                    builder: (context) => const TipsScreen(),
                   ),
                 );
               },

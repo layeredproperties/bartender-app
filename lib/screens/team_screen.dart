@@ -8,21 +8,42 @@ import 'hours_screen.dart';
 import 'results_screen.dart';
 
 class TeamScreen extends StatefulWidget {
-  final List<Person> roster;
   final ShiftDraft draft;
 
-  const TeamScreen({super.key, required this.roster, required this.draft});
+  const TeamScreen({super.key, required this.draft});
 
   @override
   State<TeamScreen> createState() => _TeamScreenState();
 }
 
 class _TeamScreenState extends State<TeamScreen> {
-  /// A local copy: [Person] is immutable and the screen swaps entries
-  /// with `copyWith` rather than reaching into the shared roster and
-  /// flipping fields on objects other screens are also holding.
-  late List<Person> _roster = List<Person>.from(widget.roster);
+  /// A working copy of the app-wide roster, read live from [AppSettings]
+  /// when this screen opens.
+  ///
+  /// The roster used to be handed down as a constructor argument from
+  /// Home through Tips. Tips held that list frozen for its whole
+  /// lifetime, so backing out of this screen and continuing again
+  /// rebuilt it from a stale snapshot: people added here vanished and
+  /// deleted ones came back. Worse, the next edit wrote that stale list
+  /// to disk, making the loss permanent. Reading from the single source
+  /// of truth removes the whole class of problem.
+  ///
+  /// It stays a *copy* because [Person] is immutable and this screen
+  /// swaps entries with `copyWith` rather than mutating objects other
+  /// screens are also holding.
+  List<Person>? _rosterOrNull;
+  List<Person> get _roster => _rosterOrNull!;
+  set _roster(List<Person> value) => _rosterOrNull = value;
+
   bool _isSolo = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Seed once, on the first build — re-seeding on every dependency
+    // change would discard selections made on this screen.
+    _rosterOrNull ??= List<Person>.from(AppSettings.of(context).data.roster);
+  }
 
   void _publishRoster() => AppSettings.of(context).setRoster(_roster);
 

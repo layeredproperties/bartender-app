@@ -2,15 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../models/money.dart';
-import '../models/person.dart';
 import '../models/shift_draft.dart';
 import '../models/shift_totals.dart';
 import 'team_screen.dart';
 
 class TipsScreen extends StatefulWidget {
-  final List<Person> roster;
-
-  const TipsScreen({super.key, required this.roster});
+  const TipsScreen({super.key});
 
   @override
   State<TipsScreen> createState() => _TipsScreenState();
@@ -58,7 +55,6 @@ class _TipsScreenState extends State<TipsScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => TeamScreen(
-          roster: widget.roster,
           draft: ShiftDraft(
             totals: totals,
             userName: AppSettings.of(context).data.userName,

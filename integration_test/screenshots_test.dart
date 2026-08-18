@@ -92,7 +92,7 @@ void main() {
   });
 
   testWidgets('02 shift totals', (tester) async {
-    await tester.pumpWidget(shell(const TipsScreen(roster: roster)));
+    await tester.pumpWidget(shell(const TipsScreen()));
     await tester.pumpAndSettle();
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), '1240.50');
@@ -111,7 +111,6 @@ void main() {
       tester,
       '03_team',
       const TeamScreen(
-        roster: roster,
         draft: ShiftDraft(totals: totals, userName: 'Michael'),
       ),
     );
