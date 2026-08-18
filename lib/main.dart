@@ -146,6 +146,9 @@ class _MyAppState extends State<MyApp> {
       setRoster: _setRoster,
       child: MaterialApp(
         title: 'Tip Out',
+        // The debug ribbon would otherwise sit in the corner of every
+        // App Store screenshot.
+        debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorSchemeSeed: Colors.blue,
           useMaterial3: true,
