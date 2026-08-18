@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  _locationFlow();
+
   /// Start a shift and land on the tips screen.
   Future<void> startShift(WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
@@ -160,6 +162,84 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Results'), findsOneWidget);
+    });
+  });
+}
+
+/// The location picked on the tips screen has to survive the whole
+/// Tips -> Team -> Hours -> Results chain and label the shift.
+void _locationFlow() {
+  group('location', () {
+    testWidgets('can be added inline and labels the results', (tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MyApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Start Shift'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField).first, '450.00');
+      await tester.pumpAndSettle();
+
+      // No saved locations yet, so add one without leaving the screen.
+      await tester.tap(find.byTooltip('Add a location'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'The Anchor Bar');
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('The Anchor Bar'), findsWidgets);
+
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Calculate'));
+      await tester.pumpAndSettle();
+
+      // The results header carries date + venue.
+      expect(find.textContaining('The Anchor Bar'), findsWidgets);
+    });
+
+    testWidgets('is optional — skipping it still works', (tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MyApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Start Shift'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, '450.00');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Who worked with you?'), findsOneWidget);
+    });
+
+    testWidgets('rejects a duplicate location name', (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'locations': ['The Anchor Bar'],
+      });
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MyApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Start Shift'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Add a location'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'the anchor bar');
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('the anchor bar is already on the list'), findsOneWidget);
     });
   });
 }

@@ -15,6 +15,10 @@ class LoggedShift {
   final double sales;
   final double barbackCut;
 
+  /// Where the shift was worked; empty for shifts logged before the
+  /// location column existed.
+  final String location;
+
   /// The exact "Shift Totals" row this shift begins with — the key used
   /// to find it again in `CsvExportService.replaceShift`.
   final String totalsRowLine;
@@ -26,6 +30,7 @@ class LoggedShift {
     required this.serviceChargeTips,
     required this.sales,
     required this.barbackCut,
+    this.location = '',
     required this.totalsRowLine,
   });
 

@@ -46,6 +46,7 @@ void main() {
   const draft = ShiftDraft(
     totals: totals,
     userName: 'Michael',
+    location: 'The Anchor Bar',
     selectedPeople: roster,
     barbackCut: 162.00, // 3% of sales
     barbackMode: BarbackMode.percentageOfSales,
@@ -59,10 +60,12 @@ void main() {
         userName: 'Michael',
         textScale: 1.0,
         roster: roster,
+        locations: ['The Anchor Bar', 'Harbour House'],
       ),
       setUserName: (_) {},
       setTextScale: (_, {bool persist = true}) {},
       setRoster: (_) {},
+      setLocations: (_) {},
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),

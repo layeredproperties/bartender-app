@@ -14,6 +14,9 @@ class ImportedShift {
   final double sales;
   final double barbackCut;
 
+  /// Where the teammate worked the shift; empty if unknown.
+  final String location;
+
   /// Name -> line item for barback rows in the file.
   final Map<String, Pools> barbacks;
 
@@ -36,6 +39,7 @@ class ImportedShift {
     required this.serviceChargeTips,
     required this.sales,
     required this.barbackCut,
+    this.location = '',
     required this.barbacks,
     required this.bartenders,
     required this.rawRows,

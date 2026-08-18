@@ -74,6 +74,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const Divider(height: 32),
+          Text('Locations', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            'The bars you work. Pick one when you enter a shift.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          if (settings.data.locations.isEmpty)
+            const ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: Text('None yet — add one when entering a shift.'),
+            )
+          else
+            for (final place in settings.data.locations)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.place_outlined),
+                title: Text(place),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  tooltip: 'Remove $place',
+                  onPressed: () => settings.setLocations(
+                    settings.data.locations.where((e) => e != place).toList(),
+                  ),
+                ),
+              ),
+          const Divider(height: 32),
           Text('Text Size', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           Row(

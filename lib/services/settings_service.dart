@@ -10,10 +10,14 @@ class StoredSettings {
   final double textScale;
   final List<Person> roster;
 
+  /// The bars this user works, in the order they were added.
+  final List<String> locations;
+
   const StoredSettings({
     required this.userName,
     required this.textScale,
     required this.roster,
+    required this.locations,
   });
 }
 
@@ -22,6 +26,7 @@ class SettingsService {
   static const _kUserName = 'user_name';
   static const _kTextScale = 'text_scale';
   static const _kRoster = 'roster';
+  static const _kLocations = 'locations';
 
   static const String defaultUserName = 'You';
   static const double defaultTextScale = 1.0;
@@ -38,6 +43,7 @@ class SettingsService {
       userName: userName,
       textScale: _readTextScale(prefs),
       roster: _readRoster(prefs, userName),
+      locations: _readLocations(prefs),
     );
   }
 
@@ -68,6 +74,28 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(roster.map((p) => p.toJson()).toList());
     await prefs.setString(_kRoster, encoded);
+  }
+
+  /// The saved locations, or an empty list. There is deliberately no
+  /// starter list: inventing bar names the user has to delete is worse
+  /// than an empty picker with an obvious "add" button next to it.
+  static Future<List<String>> loadLocations() async =>
+      _readLocations(await SharedPreferences.getInstance());
+
+  static Future<void> saveLocations(List<String> locations) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kLocations, locations);
+  }
+
+  static List<String> _readLocations(SharedPreferences prefs) {
+    final saved = prefs.getStringList(_kLocations) ?? const [];
+    // Drop blanks and case-insensitive repeats, keeping first-added order.
+    final seen = <String>{};
+    return [
+      for (final raw in saved)
+        if (raw.trim().isNotEmpty && seen.add(raw.trim().toLowerCase()))
+          raw.trim(),
+    ];
   }
 
   static String _readUserName(SharedPreferences prefs) {

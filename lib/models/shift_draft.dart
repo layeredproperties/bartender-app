@@ -12,6 +12,9 @@ import 'shift_totals.dart';
 class ShiftDraft {
   final ShiftTotals totals;
   final String userName;
+
+  /// Where the shift was worked. Null when the user didn't pick one.
+  final String? location;
   final List<Person> selectedPeople;
   final bool isSolo;
   final double barbackCut;
@@ -28,6 +31,7 @@ class ShiftDraft {
   const ShiftDraft({
     required this.totals,
     required this.userName,
+    this.location,
     this.selectedPeople = const [],
     this.isSolo = false,
     this.barbackCut = 0.0,
@@ -45,6 +49,7 @@ class ShiftDraft {
   ShiftDraft copyWith({
     ShiftTotals? totals,
     String? userName,
+    String? location,
     List<Person>? selectedPeople,
     bool? isSolo,
     double? barbackCut,
@@ -56,6 +61,7 @@ class ShiftDraft {
     return ShiftDraft(
       totals: totals ?? this.totals,
       userName: userName ?? this.userName,
+      location: location ?? this.location,
       selectedPeople: selectedPeople ?? this.selectedPeople,
       isSolo: isSolo ?? this.isSolo,
       barbackCut: barbackCut ?? this.barbackCut,

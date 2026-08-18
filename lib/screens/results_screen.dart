@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/logged_shift.dart';
 import '../models/money.dart';
 import '../models/pools.dart';
+import '../models/shift_label.dart';
 import '../models/shift_draft.dart';
 import '../models/tip_out_result.dart';
 import '../services/csv_export_service.dart';
@@ -23,6 +24,11 @@ class ResultsScreen extends StatefulWidget {
 
 class _ResultsScreenState extends State<ResultsScreen> {
   late final TipOutResult _result;
+
+  /// Fixed when the screen opens: the label, the shared CSV and the
+  /// saved log row must all agree on the date, and `DateTime.now()`
+  /// called three times just before midnight would not.
+  final DateTime _sharedAt = DateTime.now();
   String? _csvPath;
   bool _saving = false;
 
@@ -55,7 +61,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
   String _buildShareText() {
     final totals = widget.draft.totals;
     final buffer = StringBuffer()
-      ..writeln('Tip-Out Results')
+      ..writeln(shiftLabel(_sharedAt, widget.draft.location))
+      ..writeln()
       ..writeln('Total Tips: ${formatMoney(totals.totalTips)}')
       ..writeln(
         'CC: ${formatMoney(totals.creditCardTips)}  '
@@ -96,15 +103,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
   Future<void> _shareResults() async {
     try {
       final path = await CsvExportService.writeShareableFile(
-        timestamp: DateTime.now(),
+        timestamp: _sharedAt,
         totals: widget.draft.totals,
         result: _result,
         barbackCut: widget.draft.barbackCut,
+        location: widget.draft.location,
       );
       await Share.shareXFiles(
         [XFile(path, mimeType: 'text/csv')],
         text: _buildShareText(),
-        subject: 'Tip-Out Results',
+        subject: 'Tip Out — ${shiftLabel(_sharedAt, widget.draft.location)}',
       );
     } catch (e) {
       if (!mounted) return;
@@ -140,6 +148,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               totals: widget.draft.totals,
               result: _result,
               barbackCut: widget.draft.barbackCut,
+              location: widget.draft.location,
             )
           : await CsvExportService.replaceShift(
               totalsRowLine: replaceKey,
@@ -147,6 +156,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               totals: widget.draft.totals,
               result: _result,
               barbackCut: widget.draft.barbackCut,
+              location: widget.draft.location,
             );
 
       if (!mounted) return;
@@ -192,7 +202,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
           for (final shift in existing)
             ListTile(
               leading: const Icon(Icons.refresh),
-              title: Text('Replace the ${shift.displayTime} shift'),
+              title: Text(shift.location.isEmpty
+                  ? 'Replace the ${shift.displayTime} shift'
+                  : 'Replace ${shift.displayTime} at ${shift.location}'),
               subtitle: Text('${formatMoney(shift.totalTips)} in tips'),
               onTap: () => Navigator.pop(
                 dialogContext,
@@ -247,6 +259,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Shift Totals', style: theme.textTheme.titleMedium),
+                  Text(
+                    shiftLabel(_sharedAt, draft.location),
+                    style: theme.textTheme.bodySmall,
+                  ),
                   const SizedBox(height: 8),
                   MoneyRow(
                       'Credit Card Tips', formatMoney(totals.creditCardTips)),

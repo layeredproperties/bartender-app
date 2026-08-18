@@ -142,6 +142,8 @@ class _ImportScreenState extends State<ImportScreen> {
                       '${shift.dateStr}  ${shift.timeStr}',
                       style: theme.textTheme.titleMedium,
                     ),
+                    if (shift.location.isNotEmpty)
+                      Text(shift.location, style: theme.textTheme.bodySmall),
                     const SizedBox(height: 8),
                     MoneyRow('Credit Card Tips',
                         formatMoney(shift.creditCardTips)),

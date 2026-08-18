@@ -19,6 +19,12 @@ class _TipsScreenState extends State<TipsScreen> {
   final _scController = TextEditingController();
   final _salesController = TextEditingController();
 
+  /// Where this shift was worked. Optional, and deliberately blank each
+  /// time rather than remembering the last one — a bartender working two
+  /// bars shouldn't have last night's venue silently attached to
+  /// tonight's numbers.
+  String? _location;
+
   @override
   void dispose() {
     _ccController.dispose();
@@ -58,6 +64,7 @@ class _TipsScreenState extends State<TipsScreen> {
           draft: ShiftDraft(
             totals: totals,
             userName: AppSettings.of(context).data.userName,
+            location: _location,
           ),
         ),
       ),
@@ -98,6 +105,8 @@ class _TipsScreenState extends State<TipsScreen> {
                 icon: Icons.storefront,
                 hint: 'e.g. 5000.00',
               ),
+              const SizedBox(height: 16),
+              _buildLocationField(context),
               const SizedBox(height: 32),
               ElevatedButton(
                 onPressed: _continue,
@@ -108,6 +117,54 @@ class _TipsScreenState extends State<TipsScreen> {
         ),
       ),
     );
+  }
+
+  /// The location picker, plus a button to add one without leaving the
+  /// screen — the same shape as "Add New Person" on the roster.
+  Widget _buildLocationField(BuildContext context) {
+    final locations = AppSettings.of(context).data.locations;
+    return Row(
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<String?>(
+            initialValue: locations.contains(_location) ? _location : null,
+            decoration: const InputDecoration(
+              labelText: 'Where did you work? (optional)',
+              prefixIcon: Icon(Icons.place_outlined),
+              border: OutlineInputBorder(),
+            ),
+            hint: Text(
+              locations.isEmpty ? 'Add a location' : 'No location',
+            ),
+            items: [
+              const DropdownMenuItem<String?>(
+                child: Text('No location'),
+              ),
+              for (final place in locations)
+                DropdownMenuItem<String?>(value: place, child: Text(place)),
+            ],
+            onChanged: (value) => setState(() => _location = value),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton.filledTonal(
+          onPressed: _addLocation,
+          icon: const Icon(Icons.add),
+          tooltip: 'Add a location',
+        ),
+      ],
+    );
+  }
+
+  Future<void> _addLocation() async {
+    final settings = AppSettings.of(context);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _AddLocationDialog(existing: settings.data.locations),
+    );
+    if (name == null || !mounted) return;
+    settings.setLocations([...settings.data.locations, name]);
+    setState(() => _location = name);
   }
 
   Widget _buildAmountField({
@@ -128,6 +185,78 @@ class _TipsScreenState extends State<TipsScreen> {
         border: const OutlineInputBorder(),
         prefixText: '\$ ',
       ),
+    );
+  }
+}
+
+/// Prompts for a new location.
+///
+/// A widget rather than an inline builder so it owns its
+/// [TextEditingController] and disposes it after the route's exit
+/// animation — the same reason the add-person dialog is one.
+class _AddLocationDialog extends StatefulWidget {
+  final List<String> existing;
+
+  const _AddLocationDialog({required this.existing});
+
+  @override
+  State<_AddLocationDialog> createState() => _AddLocationDialogState();
+}
+
+class _AddLocationDialogState extends State<_AddLocationDialog> {
+  final _controller = TextEditingController();
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _controller.text.trim();
+    if (name.isEmpty) {
+      setState(() => _errorText = 'Enter a name');
+      return;
+    }
+    // Case-insensitive, so the log doesn't end up split between
+    // "Anchor Bar" and "anchor bar".
+    final taken = widget.existing
+        .any((e) => e.trim().toLowerCase() == name.toLowerCase());
+    if (taken) {
+      setState(() => _errorText = '$name is already on the list');
+      return;
+    }
+    Navigator.pop(context, name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add a Location'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _submit(),
+        onChanged: (_) {
+          if (_errorText != null) setState(() => _errorText = null);
+        },
+        decoration: InputDecoration(
+          labelText: 'Name',
+          hintText: 'e.g. The Anchor Bar',
+          border: const OutlineInputBorder(),
+          errorText: _errorText,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(onPressed: _submit, child: const Text('Add')),
+      ],
     );
   }
 }

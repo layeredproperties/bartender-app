@@ -19,6 +19,13 @@ class CsvExportService {
 
   static const String _header =
       'Date,Time,Type,Name,Credit Card Tips,Service Charge Tips,Net Sales,'
+      'Barback Cut,Source,Location';
+
+  /// The header before Location existed. Appending the new column rather
+  /// than inserting it keeps every earlier index valid, so files written
+  /// by either older build still parse without a special case.
+  static const String _preLocationHeader =
+      'Date,Time,Type,Name,Credit Card Tips,Service Charge Tips,Net Sales,'
       'Barback Cut,Source';
 
   /// The pre-Source header. Files shared by an older build of the app
@@ -30,6 +37,9 @@ class CsvExportService {
   /// Number of columns before Source — the part of a row that identifies
   /// a shift, and so the part duplicate detection compares.
   static const int _sourceIndex = 8;
+
+  /// Column holding where the shift was worked; absent in older files.
+  static const int _locationIndex = 9;
 
   /// Resolve `name` inside `dir`, creating the directory first.
   ///
@@ -67,6 +77,7 @@ class CsvExportService {
     required ShiftTotals totals,
     required TipOutResult result,
     required double barbackCut,
+    String? location,
   }) async {
     final file = await _logFile();
 
@@ -80,6 +91,7 @@ class CsvExportService {
         totals: totals,
         result: result,
         barbackCut: barbackCut,
+        location: location,
       ),
       mode: FileMode.append,
       flush: true,
@@ -131,6 +143,7 @@ class CsvExportService {
         serviceChargeTips: double.tryParse(fields[5]) ?? 0,
         sales: double.tryParse(fields[6]) ?? 0,
         barbackCut: double.tryParse(fields[7]) ?? 0,
+        location: _locationOf(line),
         totalsRowLine: line,
       ));
     }
@@ -154,6 +167,7 @@ class CsvExportService {
     required ShiftTotals totals,
     required TipOutResult result,
     required double barbackCut,
+    String? location,
   }) async {
     final file = await _logFile();
 
@@ -163,6 +177,7 @@ class CsvExportService {
         totals: totals,
         result: result,
         barbackCut: barbackCut,
+        location: location,
       );
     }
 
@@ -171,6 +186,7 @@ class CsvExportService {
       totals: totals,
       result: result,
       barbackCut: barbackCut,
+      location: location,
     ).split('\n').where((l) => l.isNotEmpty).toList();
 
     // Compare on the shift key so a row re-tagged by an import still
@@ -207,6 +223,7 @@ class CsvExportService {
     required ShiftTotals totals,
     required TipOutResult result,
     required double barbackCut,
+    String? location,
   }) {
     final buffer = StringBuffer()..writeln(_header);
     buffer.write(_buildRows(
@@ -214,6 +231,7 @@ class CsvExportService {
       totals: totals,
       result: result,
       barbackCut: barbackCut,
+      location: location,
     ));
     return buffer.toString();
   }
@@ -225,6 +243,7 @@ class CsvExportService {
     required ShiftTotals totals,
     required TipOutResult result,
     required double barbackCut,
+    String? location,
   }) async {
     final name = 'tip_out_shift_${_dateStr(timestamp)}_'
         '${_pad(timestamp.hour)}${_pad(timestamp.minute)}.csv';
@@ -234,6 +253,7 @@ class CsvExportService {
       totals: totals,
       result: result,
       barbackCut: barbackCut,
+      location: location,
     ));
     return file.path;
   }
@@ -298,6 +318,7 @@ class CsvExportService {
       serviceChargeTips: sc,
       sales: sales,
       barbackCut: barbackCut,
+      location: _locationOf(totalsRowLine),
       barbacks: barbacks,
       bartenders: bartenders,
       rawRows: rows,
@@ -354,6 +375,7 @@ class CsvExportService {
     required TipOutResult result,
     required double barbackCut,
     String source = sourceLocal,
+    String? location,
   }) {
     final buffer = StringBuffer();
     final date = _dateStr(timestamp);
@@ -369,6 +391,7 @@ class CsvExportService {
       formatAmount(totals.sales),
       formatAmount(barbackCut),
       source,
+      location?.trim() ?? '',
     ]));
 
     void writePeople(String type, Map<String, Pools> people) {
@@ -383,6 +406,7 @@ class CsvExportService {
           '',
           '',
           source,
+          location?.trim() ?? '',
         ]));
       });
     }
@@ -395,7 +419,16 @@ class CsvExportService {
 
   static bool _isHeader(String line) {
     final trimmed = line.trim();
-    return trimmed == _header || trimmed == _legacyHeader;
+    return trimmed == _header ||
+        trimmed == _preLocationHeader ||
+        trimmed == _legacyHeader;
+  }
+
+  /// Where a row's shift was worked, or empty for rows written before
+  /// the column existed.
+  static String _locationOf(String line) {
+    final fields = _splitRow(line);
+    return fields.length > _locationIndex ? fields[_locationIndex].trim() : '';
   }
 
   /// The identity of a shift row, ignoring the Source column.
