@@ -91,3 +91,6 @@ ios/Runner/GeneratedPluginRegistrant.*
 android/key.properties
 **/*.jks
 **/*.keystore
+
+# Generated App Store screenshots (regenerate with the integration test)
+screenshots/
