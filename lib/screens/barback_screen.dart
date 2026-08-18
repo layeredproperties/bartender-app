@@ -107,7 +107,10 @@ class _BarbackScreenState extends State<BarbackScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => HoursScreen(
-          draft: widget.draft.copyWith(barbackCut: _barbackCut),
+          draft: widget.draft.copyWith(
+            barbackCut: _barbackCut,
+            barbackMode: _mode,
+          ),
         ),
       ),
     );

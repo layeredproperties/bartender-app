@@ -1,3 +1,4 @@
+import '../services/tip_calculator.dart';
 import 'person.dart';
 import 'shift_totals.dart';
 
@@ -14,6 +15,11 @@ class ShiftDraft {
   final List<Person> selectedPeople;
   final bool isSolo;
   final double barbackCut;
+
+  /// How [barbackCut] was arrived at. A flat amount is the group's total
+  /// payout and gets split; a percentage was computed from this
+  /// bartender's own figures and is reported in full.
+  final BarbackMode barbackMode;
   final bool equalSplit;
 
   /// Bartender name -> hours worked. Null when [equalSplit] is true.
@@ -25,6 +31,7 @@ class ShiftDraft {
     this.selectedPeople = const [],
     this.isSolo = false,
     this.barbackCut = 0.0,
+    this.barbackMode = BarbackMode.flatAmount,
     this.equalSplit = true,
     this.hours,
   });
@@ -41,6 +48,7 @@ class ShiftDraft {
     List<Person>? selectedPeople,
     bool? isSolo,
     double? barbackCut,
+    BarbackMode? barbackMode,
     bool? equalSplit,
     Map<String, double>? hours,
     bool clearHours = false,
@@ -51,6 +59,7 @@ class ShiftDraft {
       selectedPeople: selectedPeople ?? this.selectedPeople,
       isSolo: isSolo ?? this.isSolo,
       barbackCut: barbackCut ?? this.barbackCut,
+      barbackMode: barbackMode ?? this.barbackMode,
       equalSplit: equalSplit ?? this.equalSplit,
       hours: clearHours ? null : (hours ?? this.hours),
     );

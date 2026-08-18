@@ -46,6 +46,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
       userName: draft.userName,
       isSolo: draft.isSolo,
       barbackCut: draft.barbackCut,
+      barbackMode: draft.barbackMode,
       equalSplit: draft.equalSplit,
       hours: draft.hours,
     );

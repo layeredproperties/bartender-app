@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// Regressions for bugs found in review. Each test names the behaviour
 /// that used to be wrong.
 void main() {
+  _barbackModeSemantics();
   _proportionalBarbackDeduction();
 
   group('duplicate names', () {
@@ -295,6 +296,123 @@ void _proportionalBarbackDeduction() {
 
       expect(weights['You'], 0.5);
       expect(weights['Bob'], 0.5);
+    });
+  });
+}
+
+/// The barback tip-out means different things per mode, because this app
+/// only ever sees one bartender's numbers — the copies running on
+/// coworkers' phones can't talk to each other.
+void _barbackModeSemantics() {
+  const totals = ShiftTotals(
+    creditCardTips: 800,
+    serviceChargeTips: 200,
+    sales: 5000,
+  );
+  const three = ['You', 'Bob', 'Carol'];
+
+  group('barback line item by mode', () {
+    test('a flat amount is the group payout, so it is split', () {
+      // The user typed what the group owes — the one figure the app
+      // cannot derive for itself. $90 across 3 bartenders is $30 each.
+      expect(
+        TipCalculator.barbackLineItem(
+          barbackCut: 90,
+          bartenderCount: 3,
+          mode: BarbackMode.flatAmount,
+        ),
+        30.0,
+      );
+    });
+
+    test('a percentage of tips is already personal, so it is not split', () {
+      // 20% of this bartender's own $1000 in tips. Splitting it three
+      // ways reported $66.67 where $200 was owed.
+      expect(
+        TipCalculator.barbackLineItem(
+          barbackCut: 200,
+          bartenderCount: 3,
+          mode: BarbackMode.percentageOfTips,
+        ),
+        200.0,
+      );
+    });
+
+    test('a percentage of sales is already personal too', () {
+      expect(
+        TipCalculator.barbackLineItem(
+          barbackCut: 250,
+          bartenderCount: 3,
+          mode: BarbackMode.percentageOfSales,
+        ),
+        250.0,
+      );
+    });
+
+    test('bartender count cannot affect a percentage', () {
+      for (final n in [1, 2, 5, 9]) {
+        expect(
+          TipCalculator.barbackLineItem(
+            barbackCut: 175,
+            bartenderCount: n,
+            mode: BarbackMode.percentageOfTips,
+          ),
+          175.0,
+          reason: 'with $n bartenders',
+        );
+      }
+    });
+  });
+
+  group('calculateShift honours the mode', () {
+    test('flat: the reported figure is the group amount over N', () {
+      final result = TipCalculator.calculateShift(
+        totals: totals,
+        bartenderNames: three,
+        barbackNames: const ['Barry'],
+        userName: 'You',
+        barbackCut: 90,
+        barbackMode: BarbackMode.flatAmount,
+      );
+      expect(result.barbacks['Barry']!.total, 30.0);
+      expect(result.totalDistributed, 1000.0);
+    });
+
+    test('percentage: the reported figure is the full amount', () {
+      final result = TipCalculator.calculateShift(
+        totals: totals,
+        bartenderNames: three,
+        barbackNames: const ['Barry'],
+        userName: 'You',
+        barbackCut: 200, // 20% of this bartender's $1000
+        barbackMode: BarbackMode.percentageOfTips,
+      );
+      expect(result.barbacks['Barry']!.total, 200.0);
+      expect(result.totalDistributed, 1000.0);
+    });
+
+    test('percentage of sales reports in full as well', () {
+      final result = TipCalculator.calculateShift(
+        totals: totals,
+        bartenderNames: three,
+        barbackNames: const ['Barry'],
+        userName: 'You',
+        barbackCut: 250, // 5% of $5000 in sales
+        barbackMode: BarbackMode.percentageOfSales,
+      );
+      expect(result.barbacks['Barry']!.total, 250.0);
+      expect(result.totalDistributed, 1000.0);
+    });
+
+    test('defaults to flat, so existing callers are unchanged', () {
+      final result = TipCalculator.calculateShift(
+        totals: totals,
+        bartenderNames: three,
+        barbackNames: const ['Barry'],
+        userName: 'You',
+        barbackCut: 90,
+      );
+      expect(result.barbacks['Barry']!.total, 30.0);
     });
   });
 }

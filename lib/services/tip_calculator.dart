@@ -24,8 +24,12 @@ enum BarbackMode { flatAmount, percentageOfTips, percentageOfSales }
 ///
 /// ### Step 2 — Apply the barback deduction
 /// The barback tip-out is NOT deducted from the CC+SC pool. Instead:
-///   - `X` = BB / N  — the total barback pool (what each bartender's app
-///     shows as the barback's tip-out).
+///   - `X` — what this bartender reports as the barback's tip-out. For a
+///     flat amount the user typed the *group's* payout, so `X = BB / N`.
+///     For a percentage the figure was already computed from this
+///     bartender's own tips or sales, so `X = BB` and it is reported in
+///     full. The app never sees the other bartenders' numbers, so there
+///     is no combined total a percentage could be divided by.
 ///   - Each bartender's deduction = `X × their share of the pool`, using
 ///     the same weights step 1 used: `1/N` on an equal split, or
 ///     `theirHours / totalHours` on an hourly one.
@@ -49,8 +53,10 @@ enum BarbackMode { flatAmount, percentageOfTips, percentageOfSales }
 ///
 /// ### Step 4 — Penny reconciliation
 /// All line items (bartenders + barbacks) are summed. If the total
-/// differs from TT by a penny, the remainder is added to the barback's
-/// line (or the user's line if there's no barback). This guarantees:
+/// differs from TT by a penny, the remainder is added to a bartender's
+/// line — the user's when they worked, otherwise the first bartender's.
+/// Never a barback's: that figure is reported to the POS and has to
+/// match the rule exactly. This guarantees:
 ///
 ///     Σ(bartender lines) + Σ(barback lines) = TT exactly
 ///
@@ -138,6 +144,7 @@ class TipCalculator {
     required String userName,
     bool isSolo = false,
     double barbackCut = 0.0,
+    BarbackMode barbackMode = BarbackMode.flatAmount,
     bool equalSplit = true,
     Map<String, double>? hours,
   }) {
@@ -181,6 +188,7 @@ class TipCalculator {
         : barbackLineItem(
             barbackCut: barbackCut,
             bartenderCount: bartenderNames.length,
+            mode: barbackMode,
           );
 
     // STEP 2 — Deduct each bartender's share of the barback pool,
@@ -223,15 +231,14 @@ class TipCalculator {
     final result = TipOutResult(bartenders: bartenders, barbacks: barbacks);
     final remainder = roundToCents(totalTips - result.totalDistributed);
     if (remainder != 0) {
-      if (barbacks.isNotEmpty) {
-        final first = barbackNames.first;
-        barbacks[first] = barbacks[first]!.addRemainder(remainder);
-      } else {
-        final target = bartenders.containsKey(userName)
-            ? userName
-            : bartenders.keys.first;
-        bartenders[target] = bartenders[target]!.addRemainder(remainder);
-      }
+      // Always a bartender, never a barback. The barback's line is a
+      // figure the user reports to the POS, and it has to match the rule
+      // exactly — a "20% of tips" tip-out reading $200.01 is wrong even
+      // though the books still balance. Bartender lines are take-home,
+      // so they're the right place to absorb a stray cent.
+      final target =
+          bartenders.containsKey(userName) ? userName : bartenders.keys.first;
+      bartenders[target] = bartenders[target]!.addRemainder(remainder);
     }
 
     return result;
@@ -249,15 +256,31 @@ class TipCalculator {
     );
   }
 
-  /// Calculate the total barback pool: X = BB / N
-  /// where BB is the total barback tip-out and N is the number of
-  /// bartenders. This is what each bartender's app shows as the
-  /// barback's tip-out, and is shared among the barbacks in step 3.
+  /// What this bartender reports as the barback's tip-out.
+  ///
+  /// Which depends entirely on the mode, because only one of them is a
+  /// figure for the whole group:
+  ///
+  ///   - [BarbackMode.flatAmount] — the user typed what the *group*
+  ///     owes the barback, the one number the app cannot work out for
+  ///     itself. Split it: `BB / N`. A $90 payout across 3 bartenders
+  ///     is $30 each.
+  ///   - [BarbackMode.percentageOfTips] / [BarbackMode.percentageOfSales]
+  ///     — the percentage was applied to *this* bartender's own tips or
+  ///     sales, so the result is already personal. Report all of it.
+  ///
+  /// This app only ever sees one bartender's numbers; the copies running
+  /// on their coworkers' phones can't talk to each other, so there is no
+  /// combined total to divide a percentage by. Dividing one anyway was
+  /// the bug: it shrank every reported percentage tip-out by a factor of
+  /// N and underpaid the barback.
   static double barbackLineItem({
     required double barbackCut,
     required int bartenderCount,
+    BarbackMode mode = BarbackMode.flatAmount,
   }) {
     if (bartenderCount <= 0) return 0;
+    if (mode != BarbackMode.flatAmount) return roundToCents(barbackCut);
     return roundToCents(barbackCut / bartenderCount);
   }
 
